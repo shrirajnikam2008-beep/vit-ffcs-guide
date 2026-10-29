@@ -21,6 +21,10 @@ import {
   LayoutGrid,
   ListFilter,
   Copy,
+  MoreHorizontal,
+  PanelLeftOpen,
+  BookOpen,
+  Columns3,
 } from 'lucide-react';
 import {
   ClashReport,
@@ -45,11 +49,13 @@ import { CourseTeacherSlotSelector } from '../components/CourseTeacherSlotSelect
 import { TimetableGrid } from '../components/TimetableGrid';
 
 const LOCAL_STORAGE_KEY = 'vit_ffcs_maker_saved_plans_v2';
+const SESSION_LAYOUT_KEY = 'vit_ffcs_layout_prefs_v1';
 
 type PlanSlotKey = 'primary' | 'backup1' | 'backup2';
+type TimetableDisplayMode = 'compact' | 'detailed' | 'schedule';
 
 const PLAN_LABELS: Record<PlanSlotKey, string> = {
-  primary: 'Primary Timetable',
+  primary: 'Primary',
   backup1: 'Backup 1',
   backup2: 'Backup 2',
 };
@@ -60,11 +66,51 @@ export const DashboardPage: React.FC = () => {
   const [semester, setSemester] = useState('Winter Semester 2026–27');
   const [showSaturday, setShowSaturday] = useState(false);
 
-  // Readability & View Controls
-  // Default to Detailed View (fitToPage = false) so full faculty names, course titles, and venues are visible immediately
-  const [fitToPage, setFitToPage] = useState(false);
-  const [isTimetableExpanded, setIsTimetableExpanded] = useState(false);
-  const [gridViewMode, setGridViewMode] = useState<'week' | 'slotlist'>('week');
+  // Layout & Display Mode State (Persisted in sessionStorage)
+  // Default: Compact Grid ('compact') so all weekdays & 12 periods fit in a single laptop screen
+  const [displayMode, setDisplayMode] = useState<TimetableDisplayMode>(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(SESSION_LAYOUT_KEY) || '{}');
+      if (saved.displayMode) return saved.displayMode;
+    } catch {
+      // ignore
+    }
+    return typeof window !== 'undefined' && window.innerWidth < 900 ? 'schedule' : 'compact';
+  });
+  const [leftPanelWidth, setLeftPanelWidth] = useState<number>(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(SESSION_LAYOUT_KEY) || '{}');
+      if (typeof saved.leftPanelWidth === 'number') {
+        return Math.min(500, Math.max(290, saved.leftPanelWidth));
+      }
+    } catch {
+      // ignore
+    }
+    return 368;
+  });
+  const [isLeftCollapsed, setIsLeftCollapsed] = useState<boolean>(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(SESSION_LAYOUT_KEY) || '{}');
+      return Boolean(saved.isLeftCollapsed);
+    } catch {
+      return false;
+    }
+  });
+  const [focusTimetableMode, setFocusTimetableMode] = useState(false);
+  const [showOverflowMenu, setShowOverflowMenu] = useState(false);
+  const [clashDrawerExpanded, setClashDrawerExpanded] = useState(false);
+
+  // Persist layout state in sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem(
+      SESSION_LAYOUT_KEY,
+      JSON.stringify({
+        displayMode,
+        leftPanelWidth,
+        isLeftCollapsed,
+      })
+    );
+  }, [displayMode, leftPanelWidth, isLeftCollapsed]);
 
   // PDF Export Configuration State (Default: Landscape A3 + Both Pages)
   const [pdfPaperSize, setPdfPaperSize] = useState<PdfPaperSize>('a3');
@@ -87,9 +133,9 @@ export const DashboardPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   // Data Source Transparency Status
-  const [dataSourceStatus, setDataSourceStatus] = useState<
-    'Cached (no8am.site + Workbook)' | 'Current (Live no8am.site Sync)' | 'Manually Imported (.xlsx/.csv)'
-  >('Cached (no8am.site + Workbook)');
+  const [dataSourceStatus, setDataSourceStatus] = useState<'Cached' | 'Live Sync' | 'Imported'>(
+    'Cached'
+  );
   const [lastUpdatedLabel, setLastUpdatedLabel] = useState<string>('2026-10-29');
   const [syncingNo8am, setSyncingNo8am] = useState(false);
 
@@ -100,6 +146,29 @@ export const DashboardPage: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const isResizingRef = useRef(false);
+
+  // Drag-resize handler for Left Panel (290px - 500px)
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const nextWidth = Math.min(500, Math.max(290, e.clientX));
+      setLeftPanelWidth(nextWidth);
+    };
+    const onMouseUp = () => {
+      if (isResizingRef.current) {
+        isResizingRef.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
 
   const selectedSectionIds = planSectionsMap[activePlanKey] ?? [];
 
@@ -121,7 +190,7 @@ export const DashboardPage: React.FC = () => {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage((cur) => (cur === msg ? null : cur));
-    }, 3200);
+    }, 2800);
   }, []);
 
   // Load Bootstrap Data
@@ -143,7 +212,11 @@ export const DashboardPage: React.FC = () => {
         if (rawSaved) {
           try {
             const parsed = JSON.parse(rawSaved);
-            if (parsed.planSectionsMap && Array.isArray(parsed.planSectionsMap.primary) && parsed.planSectionsMap.primary.length > 0) {
+            if (
+              parsed.planSectionsMap &&
+              Array.isArray(parsed.planSectionsMap.primary) &&
+              parsed.planSectionsMap.primary.length > 0
+            ) {
               setPlanSectionsMap(parsed.planSectionsMap);
               if (parsed.activePlanKey) setActivePlanKey(parsed.activePlanKey);
               return;
@@ -153,8 +226,6 @@ export const DashboardPage: React.FC = () => {
           }
         }
 
-        // Build a comprehensive 6-course (12-section, 24-credit) clash-free starter timetable
-        // testing long course titles, long faculty names, and PRP329, PRP408A, SJT122, SJTG18 venues
         const findSec = (code: string, typeCode: string, slotPrefix: string, venueFilter?: string) =>
           data.courses
             .find((c) => c.course_code === code)
@@ -166,29 +237,22 @@ export const DashboardPage: React.FC = () => {
             );
 
         const starterPrimary = [
-          // 1. BACSE104 — Structured and Object-Oriented Programming (SJT102 + SJT122)
           findSec('BACSE104', 'ETH', 'A1', 'SJT102'),
           findSec('BACSE104', 'ELA', 'L37+L38+L43+L44', 'SJT122'),
-          // 2. BAITE101 — Digital Logic Design and Computer Organization (MANGAYARKARASI R / KONGUVELE E)
           findSec('BAITE101', 'ETH', 'B1+TB1', 'SJT823'),
           findSec('BAITE101', 'ELA', 'L55+L56', 'SJT212'),
-          // 3. BACHY105 — Applied Chemistry (PRP329 + PRP408A)
           findSec('BACHY105', 'ETH', 'C1+TC1', 'PRP329'),
           findSec('BACHY105', 'ELA', 'L49+L50', 'PRP408A'),
-          // 4. BAMAT207 — Probability and Statistics (VENKATESWARLU B in PRP329)
           findSec('BAMAT207', 'ETH', 'D1+TD1', 'PRP329'),
           findSec('BAMAT207', 'ELA', 'L51+L52', 'PRP450'),
-          // 5. BAITE103 — Principles of Software Engineering (KIRUBA THANGAM R)
           findSec('BAITE103', 'ETH', 'E1+TE1', 'SJTG14'),
           findSec('BAITE103', 'ELA', 'L33+L34', 'SJTG17'),
-          // 6. BAITE102 — Data Structures and Algorithms (AGILANDEESWARL I + PRIYA V in SJTG18 · L39+L40)
           findSec('BAITE102', 'ETH', 'F1+TF1', 'SJT823'),
           findSec('BAITE102', 'ELA', 'L39+L40', 'SJTG18'),
         ]
           .filter((s): s is CourseSection => Boolean(s))
           .map((s) => s.id);
 
-        // Also seed Backup 1 with an afternoon-theory alternative plan
         const starterBackup1 = [
           findSec('BACSE104', 'ETH', 'A2'),
           findSec('BACSE104', 'ELA', 'L9+L10+L23+L24', 'SJT122'),
@@ -217,7 +281,7 @@ export const DashboardPage: React.FC = () => {
     loadCatalogData(campus, planSectionsMap.primary.length === 0);
   }, [campus]);
 
-  // Automatically persist selection changes to localStorage & evaluate clashes immediately
+  // Persist selection changes & evaluate clashes
   useEffect(() => {
     let cancelled = false;
     if (
@@ -273,7 +337,7 @@ export const DashboardPage: React.FC = () => {
     [selectedSectionIds, sectionById]
   );
 
-  // Select or switch a teacher/slot for a course component (updates existing card in place, never duplicates!)
+  // Select or switch a teacher/slot for a course component (updates in place, never duplicates)
   const handleSelectOrSwitchSection = useCallback(
     (section: CourseSection) => {
       setSelectedSectionIdsForActivePlan((prev) => {
@@ -293,7 +357,7 @@ export const DashboardPage: React.FC = () => {
           return true;
         });
         showToast(
-          `Selected ${section.course_code} [${section.course_type_code}] — ${section.faculty_name} (${section.venue} · ${section.slot_combination})`
+          `Selected ${section.course_code} · ${section.course_type_code} — ${section.faculty_name} (${section.venue} · ${section.slot_combination})`
         );
         return [...withoutSameComponent, section.id];
       });
@@ -301,7 +365,6 @@ export const DashboardPage: React.FC = () => {
     [sectionById, setSelectedSectionIdsForActivePlan, showToast]
   );
 
-  // Switch a specific old section ID to a new section ID
   const handleSwitchSectionById = useCallback(
     (oldSectionId: number | null | undefined, newSectionId: number) => {
       const newSec = sectionById.get(newSectionId);
@@ -322,7 +385,7 @@ export const DashboardPage: React.FC = () => {
         return Array.from(new Set([...filtered, newSectionId]));
       });
       showToast(
-        `Resolved: Switched ${newSec.course_code} to ${newSec.faculty_name} (${newSec.venue} · ${newSec.slot_combination})`
+        `Switched ${newSec.course_code} to ${newSec.faculty_name} (${newSec.venue} · ${newSec.slot_combination})`
       );
     },
     [sectionById, setSelectedSectionIdsForActivePlan, showToast]
@@ -348,7 +411,7 @@ export const DashboardPage: React.FC = () => {
   const handleClearTimetable = () => {
     setSelectedSectionIdsForActivePlan([]);
     setLockedSectionIds([]);
-    showToast(`Cleared ${PLAN_LABELS[activePlanKey]}`);
+    showToast(`Cleared ${PLAN_LABELS[activePlanKey]} Timetable`);
   };
 
   const handleClonePrimaryToActiveBackup = () => {
@@ -358,13 +421,13 @@ export const DashboardPage: React.FC = () => {
         backup1: [...prev.primary],
       }));
       setActivePlanKey('backup1');
-      showToast('Copied Primary Timetable into Backup 1');
+      showToast('Copied Primary into Backup 1');
     } else {
       setPlanSectionsMap((prev) => ({
         ...prev,
         [activePlanKey]: [...prev.primary],
       }));
-      showToast(`Copied Primary Timetable into ${PLAN_LABELS[activePlanKey]}`);
+      showToast(`Copied Primary into ${PLAN_LABELS[activePlanKey]}`);
     }
   };
 
@@ -379,7 +442,7 @@ export const DashboardPage: React.FC = () => {
         savedAt: new Date().toISOString(),
       })
     );
-    showToast('Saved all timetable plans to browser storage');
+    showToast('Saved timetable plans to browser storage');
   };
 
   const handleRestoreFromLocal = () => {
@@ -392,24 +455,19 @@ export const DashboardPage: React.FC = () => {
       const parsed = JSON.parse(raw);
       if (parsed.planSectionsMap) {
         setPlanSectionsMap(parsed.planSectionsMap);
-        showToast('Restored saved timetable plans from browser storage');
+        showToast('Restored saved timetable plans');
       }
     } catch {
       showToast('Could not read saved plan');
     }
   };
 
-  // Sync public data & catalog from no8am.site
   const handleSyncNo8am = async () => {
     setSyncingNo8am(true);
     try {
       const res = await syncNo8amReviews(campus);
       await loadCatalogData(campus, false);
-      setDataSourceStatus(
-        res.status === 'current'
-          ? 'Current (Live no8am.site Sync)'
-          : 'Cached (no8am.site + Workbook)'
-      );
+      setDataSourceStatus(res.status === 'current' ? 'Live Sync' : 'Cached');
       setLastUpdatedLabel(new Date().toISOString().slice(0, 10));
       showToast(res.message || 'Synced public course & professor data from no8am.site');
     } catch {
@@ -419,14 +477,13 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
-  // CSV / XLSX Import Fallback
   const handleImportWorkbookFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
       const res = await commitWorkbookImport(file, undefined, true);
       await loadCatalogData(campus, false);
-      setDataSourceStatus('Manually Imported (.xlsx/.csv)');
+      setDataSourceStatus('Imported');
       setLastUpdatedLabel(new Date().toISOString().slice(0, 10));
       showToast(`Imported ${res.courses_imported} courses from ${file.name}`);
     } catch {
@@ -434,7 +491,7 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
-  // Dedicated Direct PDF Export (Landscape A3 or A4, Visual / Detailed / Both)
+  // Dedicated PDF Export (Independent of compact website layout)
   const handleDownloadPdf = (
     overrideContentMode?: PdfContentMode,
     action: 'download' | 'print' = 'download'
@@ -443,7 +500,7 @@ export const DashboardPage: React.FC = () => {
     exportTimetablePdf({
       paperSize: pdfPaperSize,
       contentMode: mode,
-      planName: PLAN_LABELS[activePlanKey],
+      planName: `${PLAN_LABELS[activePlanKey]} Timetable`,
       semester,
       campus,
       showSaturday,
@@ -455,18 +512,11 @@ export const DashboardPage: React.FC = () => {
     });
     showToast(
       action === 'print'
-        ? `Opened ${PLAN_LABELS[activePlanKey]} (${pdfPaperSize.toUpperCase()} Landscape) for printing`
-        : `Downloaded ${PLAN_LABELS[activePlanKey]} PDF (Landscape ${pdfPaperSize.toUpperCase()} • ${
-            mode === 'both'
-              ? 'Timetable + Class List'
-              : mode === 'visual'
-              ? 'Visual Grid'
-              : 'Detailed Class List'
-          })`
+        ? `Opened Landscape ${pdfPaperSize.toUpperCase()} PDF for printing`
+        : `Downloaded Landscape ${pdfPaperSize.toUpperCase()} PDF`
     );
   };
 
-  // Export Excel
   const handleExportExcel = () => {
     const idsParam = selectedSectionIds.join(',');
     window.open(
@@ -475,7 +525,6 @@ export const DashboardPage: React.FC = () => {
     );
   };
 
-  // Active slot clashes & unresolved warnings
   const activeClashes = useMemo(
     () =>
       (clashReport?.clashes || []).filter(
@@ -492,475 +541,505 @@ export const DashboardPage: React.FC = () => {
     [selectedSections]
   );
 
+  // Derive TimetableGrid props from the 3 display modes ('compact' | 'detailed' | 'schedule')
+  const gridViewMode = displayMode === 'schedule' ? 'slotlist' : 'week';
+  const fitToPage = displayMode === 'compact';
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#F8F9FC] text-[#202124]">
-      {/* 1. COMPACT TOP HEADER WITH DEDICATED LANDSCAPE A3/A4 PDF EXPORT CONTROLS */}
-      <header className="no-print sticky top-0 z-30 border-b border-[#DADCE0] bg-white px-4 lg:px-6 py-2.5 shadow-2xs">
-        <div className="mx-auto max-w-[1760px] flex flex-wrap items-center justify-between gap-3">
-          {/* Left: App Name, Campus Selector, Semester, Data Source Status */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1A73E8] text-white">
-                <Calendar className="h-4 w-4" />
-              </div>
-              <div>
-                <h1 className="text-[16px] font-bold tracking-tight text-[#202124] leading-none">
-                  VIT FFCS Timetable Maker
-                </h1>
-                <span className="text-[11px] font-medium text-[#5F6368]">
-                  No8AM Public Data & Verified Slot Engine
+    <div className="min-h-screen lg:h-screen lg:overflow-hidden flex flex-col bg-[#F8F9FC] text-[#202124]">
+      {/* 1. COMPACT TOP NAVIGATION BAR (~52px height) */}
+      {!focusTimetableMode ? (
+        <header className="no-print shrink-0 border-b border-[#DADCE0] bg-white px-3 py-1.5 shadow-2xs z-30">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {/* Left: App Brand, Campus, Semester, Data Status + Sync + Import */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[#1A73E8] text-white">
+                  <Calendar className="h-3.5 w-3.5" />
+                </div>
+                <span className="text-[14px] font-bold tracking-tight text-[#202124]">
+                  VIT FFCS Planner
                 </span>
               </div>
-            </div>
 
-            {/* Campus Selector */}
-            <div className="flex items-center gap-1.5 rounded-lg border border-[#DADCE0] bg-[#F8F9FC] px-2.5 py-1 text-[12px] font-medium">
-              <MapPin className="h-3.5 w-3.5 text-[#188038]" />
-              <select
-                aria-label="Select Campus"
-                value={campus}
-                onChange={(e) => setCampus(e.target.value)}
-                className="bg-transparent font-semibold text-[#202124] focus:outline-none cursor-pointer"
-              >
-                <option value="vellore">VIT Vellore</option>
-                <option value="chennai">VIT Chennai</option>
-              </select>
-            </div>
+              {/* Campus Selector */}
+              <div className="flex items-center gap-1 rounded-md border border-[#DADCE0] bg-[#F8F9FC] px-2 py-0.5 text-[11px]">
+                <MapPin className="h-3 w-3 text-[#188038]" />
+                <select
+                  aria-label="Select Campus"
+                  value={campus}
+                  onChange={(e) => setCampus(e.target.value)}
+                  className="bg-transparent font-semibold text-[#202124] focus:outline-none cursor-pointer"
+                >
+                  <option value="vellore">Vellore</option>
+                  <option value="chennai">Chennai</option>
+                </select>
+              </div>
 
-            {/* Semester Selector */}
-            <div className="flex items-center gap-1.5 rounded-lg border border-[#DADCE0] bg-[#F8F9FC] px-2.5 py-1 text-[12px] font-medium">
-              <Clock className="h-3.5 w-3.5 text-[#1A73E8]" />
-              <select
-                aria-label="Select Semester"
-                value={semester}
-                onChange={(e) => setSemester(e.target.value)}
-                className="bg-transparent font-semibold text-[#202124] focus:outline-none cursor-pointer"
-              >
-                <option value="Winter Semester 2026–27">Winter Semester 2026–27</option>
-                <option value="Fall Semester 2026–27">Fall Semester 2026–27</option>
-              </select>
-            </div>
+              {/* Semester Selector */}
+              <div className="flex items-center gap-1 rounded-md border border-[#DADCE0] bg-[#F8F9FC] px-2 py-0.5 text-[11px]">
+                <Clock className="h-3 w-3 text-[#1A73E8]" />
+                <select
+                  aria-label="Select Semester"
+                  value={semester}
+                  onChange={(e) => setSemester(e.target.value)}
+                  className="bg-transparent font-semibold text-[#202124] focus:outline-none cursor-pointer"
+                >
+                  <option value="Winter Semester 2026–27">Winter 2026–27</option>
+                  <option value="Fall Semester 2026–27">Fall 2026–27</option>
+                </select>
+              </div>
 
-            {/* Data Source Status Badge + Sync / Upload Fallback */}
-            <div className="hidden 2xl:flex items-center gap-1.5 rounded-lg border border-[#DADCE0] bg-[#F8F9FC] px-2.5 py-1 text-[11px] text-[#5F6368]">
-              <Database className="h-3.5 w-3.5 text-[#1A73E8]" />
-              <span>
-                Data: <strong className="text-[#202124]">{dataSourceStatus}</strong> ({lastUpdatedLabel})
-              </span>
-              <button
-                onClick={handleSyncNo8am}
-                disabled={syncingNo8am}
-                title="Sync public course & faculty review data from https://no8am.site"
-                className="ml-1 inline-flex items-center gap-1 rounded bg-[#E8F0FE] px-1.5 py-0.5 font-semibold text-[#1A73E8] hover:bg-[#D2E3FC] cursor-pointer"
-              >
-                <RefreshCw className={`h-3 w-3 ${syncingNo8am ? 'animate-spin' : ''}`} />
-                <span>{syncingNo8am ? 'Syncing...' : 'Sync No8AM'}</span>
-              </button>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                title="Upload custom VIT course allocation .xlsx or .csv workbook"
-                className="inline-flex items-center gap-1 rounded bg-white border border-[#DADCE0] px-1.5 py-0.5 font-semibold text-[#202124] hover:bg-[#F1F3F4] cursor-pointer"
-              >
-                <Upload className="h-3 w-3" />
-                <span>Import .xlsx</span>
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx,.csv"
-                onChange={handleImportWorkbookFile}
-                className="hidden"
-              />
-            </div>
-          </div>
-
-          {/* Right: Dedicated PDF Export Controls + Save/Restore + Clear */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            {/* PDF Format Selector: Landscape A3 (Default) / Landscape A4 */}
-            <div className="flex items-center rounded-lg border border-[#DADCE0] bg-[#F8F9FC] px-2 py-1 text-[11.5px] font-medium">
-              <span className="text-[#5F6368] mr-1">PDF Size:</span>
-              <select
-                aria-label="Select PDF Paper Format"
-                value={pdfPaperSize}
-                onChange={(e) => setPdfPaperSize(e.target.value as PdfPaperSize)}
-                className="bg-transparent font-bold text-[#202124] focus:outline-none cursor-pointer"
-              >
-                <option value="a3">Landscape A3 (Default)</option>
-                <option value="a4">Landscape A4 (Compact)</option>
-              </select>
-            </div>
-
-            {/* PDF Content Mode Selector: Both Pages / Visual Timetable / Detailed Table */}
-            <div className="flex items-center rounded-lg border border-[#DADCE0] bg-[#F8F9FC] px-2 py-1 text-[11.5px] font-medium">
-              <span className="text-[#5F6368] mr-1">Pages:</span>
-              <select
-                aria-label="Select PDF Pages"
-                value={pdfContentMode}
-                onChange={(e) => setPdfContentMode(e.target.value as PdfContentMode)}
-                className="bg-transparent font-bold text-[#202124] focus:outline-none cursor-pointer"
-              >
-                <option value="both">Both Pages (Grid + Class List)</option>
-                <option value="visual">Visual Timetable Only</option>
-                <option value="detailed">Detailed Class List Only</option>
-              </select>
-            </div>
-
-            {/* Direct Download PDF Button */}
-            <button
-              onClick={() => handleDownloadPdf()}
-              title="Directly generate and download formatted Landscape PDF"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#1A73E8] hover:bg-[#1557B0] px-3 py-1.5 text-[12px] font-bold text-white shadow-2xs cursor-pointer"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>Download PDF</span>
-            </button>
-
-            {/* Export Detailed Class List PDF Button */}
-            <button
-              onClick={() => handleDownloadPdf('detailed', 'download')}
-              title="Download Detailed Registered Class List PDF"
-              className="inline-flex items-center gap-1 rounded-lg border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2.5 py-1.5 text-[12px] font-semibold text-[#202124] cursor-pointer"
-            >
-              <FileText className="h-3.5 w-3.5 text-[#1A73E8]" />
-              <span>Detailed List PDF</span>
-            </button>
-
-            {/* Print Timetable (Formatted Landscape PDF Print) */}
-            <button
-              onClick={() => handleDownloadPdf(pdfContentMode, 'print')}
-              title="Print formatted Landscape Timetable"
-              className="inline-flex items-center gap-1 rounded-lg border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2.5 py-1.5 text-[12px] font-semibold text-[#202124] cursor-pointer"
-            >
-              <Printer className="h-3.5 w-3.5 text-[#5F6368]" />
-              <span>Print</span>
-            </button>
-
-            {/* Excel Export */}
-            <button
-              onClick={handleExportExcel}
-              title="Download timetable as Excel (.xlsx)"
-              className="inline-flex items-center gap-1 rounded-lg border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2.5 py-1.5 text-[12px] font-medium text-[#202124] cursor-pointer"
-            >
-              <Download className="h-3.5 w-3.5 text-[#188038]" />
-              <span>Excel</span>
-            </button>
-
-            <button
-              onClick={handleSaveToLocal}
-              title="Save current timetable in browser storage"
-              className="inline-flex items-center gap-1 rounded-lg border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2.5 py-1.5 text-[12px] font-medium text-[#202124] cursor-pointer"
-            >
-              <Save className="h-3.5 w-3.5 text-[#1A73E8]" />
-              <span>Save</span>
-            </button>
-
-            <button
-              onClick={handleRestoreFromLocal}
-              title="Restore saved timetable from browser storage"
-              className="inline-flex items-center gap-1 rounded-lg border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2.5 py-1.5 text-[12px] font-medium text-[#202124] cursor-pointer"
-            >
-              <FolderOpen className="h-3.5 w-3.5 text-[#5F6368]" />
-              <span>Restore</span>
-            </button>
-
-            <button
-              onClick={handleClearTimetable}
-              title="Clear all classes from active timetable"
-              className="inline-flex items-center gap-1 rounded-lg border border-[#D93025]/40 bg-[#FCE8E6]/60 hover:bg-[#FCE8E6] px-2.5 py-1.5 text-[12px] font-semibold text-[#D93025] cursor-pointer"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>Clear</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* 2. MAIN WORKSPACE (Left Selector + Right Live Timetable, or Full-Width Expanded Timetable) */}
-      <main className="mx-auto w-full max-w-[1760px] flex-1 px-4 lg:px-6 py-4">
-        {loading ? (
-          <div className="rounded-2xl border border-[#DADCE0] bg-white p-16 text-center space-y-3">
-            <div className="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-[#1A73E8] border-t-transparent" />
-            <div className="text-[14px] font-semibold text-[#202124]">
-              Loading VIT FFCS Courses, Teachers, and Verified Slot Mappings...
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-            {/* LEFT PANEL: Course, Teacher & Slot Selector (Hidden when Timetable is in Full-Width Expanded Mode) */}
-            {!isTimetableExpanded && (
-              <div className="no-print lg:col-span-4 xl:col-span-4">
-                <CourseTeacherSlotSelector
-                  courses={courses}
-                  activeCourseCode={activeCourseCode}
-                  onSelectCourseCode={(code) => setActiveCourseCode(code)}
-                  selectedSections={selectedSections}
-                  selectedSectionIds={selectedSectionIds}
-                  clashReport={clashReport}
-                  campus={campus}
-                  lastUpdatedLabel={lastUpdatedLabel}
-                  onSelectOrSwitchSection={handleSelectOrSwitchSection}
-                  onRemoveSection={handleRemoveSection}
+              {/* Data Status + Sync + Import Workbook */}
+              <div className="hidden md:flex items-center gap-1 rounded-md border border-[#DADCE0] bg-[#F8F9FC] px-2 py-0.5 text-[10.5px] text-[#5F6368]">
+                <Database className="h-3 w-3 text-[#1A73E8]" />
+                <span>
+                  <strong className="text-[#202124]">{dataSourceStatus}</strong> ({lastUpdatedLabel})
+                </span>
+                <button
+                  onClick={handleSyncNo8am}
+                  disabled={syncingNo8am}
+                  title="Sync public course & faculty review data from no8am.site"
+                  className="ml-0.5 inline-flex items-center gap-0.5 rounded bg-[#E8F0FE] px-1.5 py-0.2 font-semibold text-[#1A73E8] hover:bg-[#D2E3FC] cursor-pointer"
+                >
+                  <RefreshCw className={`h-2.5 w-2.5 ${syncingNo8am ? 'animate-spin' : ''}`} />
+                  <span>{syncingNo8am ? '...' : 'Sync'}</span>
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Import VIT course allocation .xlsx or .csv workbook"
+                  className="inline-flex items-center gap-0.5 rounded border border-[#DADCE0] bg-white px-1.5 py-0.2 font-semibold text-[#202124] hover:bg-[#F1F3F4] cursor-pointer"
+                >
+                  <Upload className="h-2.5 w-2.5" />
+                  <span>Import</span>
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.csv"
+                  onChange={handleImportWorkbookFile}
+                  className="hidden"
                 />
               </div>
-            )}
+            </div>
 
-            {/* RIGHT PANEL: Live Weekly Timetable Grid + Readability & Plan Controls */}
-            <div
-              className={`${
-                isTimetableExpanded
-                  ? 'lg:col-span-12'
-                  : 'lg:col-span-8 xl:col-span-8'
-              } space-y-3.5`}
-            >
-              {/* LIVE CLASH DETECTION & ALTERNATIVE SUGGESTIONS BANNER */}
-              <div className="no-print">
-                {activeClashes.length === 0 ? (
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#188038]/30 bg-[#E6F4EA]/70 px-4 py-2.5 text-[13px] text-[#137333]">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 shrink-0 text-[#188038]" />
-                      <span>
-                        <strong>No clashes detected</strong> in{' '}
-                        <strong>{PLAN_LABELS[activePlanKey]}</strong> — {uniqueCourseCount} course(s),{' '}
-                        {selectedSections.length} section(s) ({clashReport?.total_credits ?? 0} Credits) verified against official VIT time slots.
-                      </span>
-                    </div>
+            {/* Right: Essential PDF & State Controls + Overflow Menu */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/* PDF Size */}
+              <div className="flex items-center rounded-md border border-[#DADCE0] bg-[#F8F9FC] px-1.5 py-0.5 text-[11px]">
+                <span className="text-[#5F6368] mr-1">PDF:</span>
+                <select
+                  aria-label="PDF Size"
+                  value={pdfPaperSize}
+                  onChange={(e) => setPdfPaperSize(e.target.value as PdfPaperSize)}
+                  className="bg-transparent font-bold text-[#202124] focus:outline-none cursor-pointer"
+                >
+                  <option value="a3">A3 Landscape</option>
+                  <option value="a4">A4 Landscape</option>
+                </select>
+              </div>
 
-                    {/* Primary / Backup Timetable Switcher Tabs */}
-                    <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
-                      {(['primary', 'backup1', 'backup2'] as PlanSlotKey[]).map((key) => {
-                        const isActive = activePlanKey === key;
-                        const count = planSectionsMap[key]?.length ?? 0;
-                        return (
-                          <button
-                            key={key}
-                            onClick={() => setActivePlanKey(key)}
-                            className={`rounded-lg border px-2.5 py-1 font-bold transition-colors cursor-pointer ${
-                              isActive
-                                ? 'border-[#1A73E8] bg-[#1A73E8] text-white'
-                                : 'border-[#DADCE0] bg-white text-[#5F6368] hover:text-[#202124]'
-                            }`}
-                          >
-                            {PLAN_LABELS[key]} ({count})
-                          </button>
-                        );
-                      })}
-                      <button
-                        onClick={handleClonePrimaryToActiveBackup}
-                        title="Copy Primary Timetable into Backup plan"
-                        className="inline-flex items-center gap-1 rounded-lg border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2 py-1 text-[11px] font-semibold text-[#202124] cursor-pointer"
-                      >
-                        <Copy className="h-3 w-3 text-[#1A73E8]" />
-                        <span>Copy Primary → Backup</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {activeClashes.map((clash) => {
-                      const isConfirmed = clash.is_confirmed && clash.severity === 'ERROR';
-                      return (
-                        <div
-                          key={clash.clash_id}
-                          className={`rounded-2xl border p-3.5 space-y-2.5 ${
-                            isConfirmed
-                              ? 'border-[#D93025] bg-[#FCE8E6]'
-                              : 'border-[#F9AB00] bg-[#FEF7E0]'
-                          }`}
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              {isConfirmed ? (
-                                <AlertOctagon className="h-4 w-4 text-[#D93025]" />
-                              ) : (
-                                <AlertTriangle className="h-4 w-4 text-[#B06000]" />
-                              )}
-                              <span
-                                className={`text-[13px] font-bold ${
-                                  isConfirmed ? 'text-[#A50E0E]' : 'text-[#8F4E00]'
-                                }`}
-                              >
-                                {isConfirmed
-                                  ? `Clash Detected: ${clash.course_a_code} (${clash.course_a_slot}) vs ${clash.course_b_code || ''} (${clash.course_b_slot || ''})`
-                                  : `Unverified Slot Mapping: ${clash.course_a_code} (${clash.course_a_slot})`}
-                              </span>
-                            </div>
+              {/* PDF Layout */}
+              <div className="flex items-center rounded-md border border-[#DADCE0] bg-[#F8F9FC] px-1.5 py-0.5 text-[11px]">
+                <select
+                  aria-label="PDF Layout"
+                  value={pdfContentMode}
+                  onChange={(e) => setPdfContentMode(e.target.value as PdfContentMode)}
+                  className="bg-transparent font-semibold text-[#202124] focus:outline-none cursor-pointer"
+                >
+                  <option value="both">Grid + List (2p)</option>
+                  <option value="visual">Visual Grid</option>
+                  <option value="detailed">Detailed List</option>
+                </select>
+              </div>
 
-                            {clash.day && clash.time_interval && (
-                              <span className="rounded-lg bg-white px-2.5 py-0.5 font-mono text-[11px] font-bold text-[#D93025] tabular-time">
-                                {clash.day} • {clash.time_interval}
-                              </span>
-                            )}
-                          </div>
+              {/* Download PDF */}
+              <button
+                onClick={() => handleDownloadPdf()}
+                title="Download formatted Landscape PDF"
+                className="inline-flex items-center gap-1 rounded-md bg-[#1A73E8] hover:bg-[#1557B0] px-2.5 py-1 text-[11px] font-bold text-white cursor-pointer"
+              >
+                <Download className="h-3 w-3" />
+                <span>Download PDF</span>
+              </button>
 
-                          <div className="text-[12px] text-[#202124]">
-                            {isConfirmed ? (
-                              <>
-                                <strong>{clash.course_a_code}</strong> ({clash.course_a_faculty}) and{' '}
-                                <strong>{clash.course_b_code}</strong> ({clash.course_b_faculty}) overlap on{' '}
-                                <strong>
-                                  {clash.day} {clash.time_interval}
-                                </strong>
-                                .
-                              </>
-                            ) : (
-                              clash.explanation
-                            )}
-                          </div>
+              {/* Save & Restore */}
+              <button
+                onClick={handleSaveToLocal}
+                title="Save timetable plans"
+                className="inline-flex items-center gap-1 rounded-md border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2 py-1 text-[11px] font-semibold text-[#202124] cursor-pointer"
+              >
+                <Save className="h-3 w-3 text-[#1A73E8]" />
+                <span>Save</span>
+              </button>
 
-                          {clash.suggested_alternatives.length > 0 && (
-                            <div className="border-t border-[#D93025]/20 pt-2">
-                              <div className="text-[11px] font-bold text-[#A50E0E] flex items-center gap-1 mb-1.5">
-                                <ArrowRightLeft className="h-3.5 w-3.5" />
-                                <span>
-                                  Suggested Clash-Free Alternative Teachers & Sections (Click to switch immediately):
-                                </span>
-                              </div>
-                              <div className="flex flex-wrap gap-1.5">
-                                {clash.suggested_alternatives.slice(0, 5).map((alt) => {
-                                  const oldId =
-                                    alt.course_code === clash.course_a_code
-                                      ? clash.course_a_section_id
-                                      : clash.course_b_section_id;
-                                  return (
-                                    <button
-                                      key={alt.section_id}
-                                      onClick={() =>
-                                        handleSwitchSectionById(oldId, alt.section_id)
-                                      }
-                                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#188038] bg-white hover:bg-[#E6F4EA] px-2.5 py-1 text-[11px] font-semibold text-[#137333] shadow-2xs transition-colors cursor-pointer"
-                                    >
-                                      <span className="font-mono font-bold text-[#1A73E8]">
-                                        {alt.course_code}
-                                      </span>
-                                      <span>→</span>
-                                      <span>{alt.faculty_name}</span>
-                                      <span className="font-mono font-bold text-[#188038]">
-                                        ({alt.slot_combination} • {alt.venue})
-                                      </span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+              <button
+                onClick={handleRestoreFromLocal}
+                title="Restore saved plans"
+                className="inline-flex items-center gap-1 rounded-md border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2 py-1 text-[11px] font-semibold text-[#202124] cursor-pointer"
+              >
+                <FolderOpen className="h-3 w-3 text-[#5F6368]" />
+                <span>Restore</span>
+              </button>
+
+              {/* Clear */}
+              <button
+                onClick={handleClearTimetable}
+                title="Clear active timetable"
+                className="inline-flex items-center gap-1 rounded-md border border-[#D93025]/40 bg-[#FCE8E6]/60 hover:bg-[#FCE8E6] px-2 py-1 text-[11px] font-semibold text-[#D93025] cursor-pointer"
+              >
+                <RotateCcw className="h-3 w-3" />
+                <span>Clear</span>
+              </button>
+
+              {/* Overflow Menu for Secondary Actions */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowOverflowMenu((o) => !o)}
+                  title="More export & backup options"
+                  className="inline-flex items-center justify-center rounded-md border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] p-1 text-[#5F6368] hover:text-[#202124] cursor-pointer"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+
+                {showOverflowMenu && (
+                  <div
+                    onMouseLeave={() => setShowOverflowMenu(false)}
+                    className="absolute right-0 mt-1 w-48 rounded-xl border border-[#DADCE0] bg-white p-1.5 shadow-xl z-50 space-y-0.5 text-[11.5px]"
+                  >
+                    <button
+                      onClick={() => {
+                        setShowOverflowMenu(false);
+                        handleDownloadPdf('detailed', 'download');
+                      }}
+                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-medium text-[#202124] hover:bg-[#F8F9FC] cursor-pointer"
+                    >
+                      <FileText className="h-3.5 w-3.5 text-[#1A73E8]" />
+                      <span>Export Detailed Class List</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowOverflowMenu(false);
+                        handleDownloadPdf(pdfContentMode, 'print');
+                      }}
+                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-medium text-[#202124] hover:bg-[#F8F9FC] cursor-pointer"
+                    >
+                      <Printer className="h-3.5 w-3.5 text-[#5F6368]" />
+                      <span>Print Landscape Timetable</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowOverflowMenu(false);
+                        handleExportExcel();
+                      }}
+                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-medium text-[#202124] hover:bg-[#F8F9FC] cursor-pointer"
+                    >
+                      <Download className="h-3.5 w-3.5 text-[#188038]" />
+                      <span>Export Excel (.xlsx)</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowOverflowMenu(false);
+                        handleClonePrimaryToActiveBackup();
+                      }}
+                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-medium text-[#202124] hover:bg-[#F8F9FC] cursor-pointer"
+                    >
+                      <Copy className="h-3.5 w-3.5 text-[#1A73E8]" />
+                      <span>Copy Primary → Backup</span>
+                    </button>
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </header>
+      ) : null}
 
-              {/* LIVE WEEKLY VIT TIMETABLE GRID CARD */}
-              <div className="rounded-2xl border border-[#DADCE0] bg-white shadow-xs overflow-hidden print-surface">
-                {/* TIMETABLE READABILITY & VIEW TOOLBAR */}
-                <div className="border-b border-[#DADCE0] bg-[#F8F9FC] px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[14px] font-bold text-[#202124]">
-                      {PLAN_LABELS[activePlanKey]} ({campus === 'vellore' ? 'VIT Vellore' : 'VIT Chennai'})
+      {/* 2. MAIN SINGLE-SCREEN WORKSPACE (Fills Remaining Viewport Height) */}
+      <main className="flex-1 min-h-0 min-w-0 flex flex-col lg:flex-row overflow-hidden">
+        {loading ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-12 text-center space-y-2">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#1A73E8] border-t-transparent" />
+            <div className="text-[13px] font-semibold text-[#202124]">
+              Loading VIT FFCS Courses, Faculty & Verified Slot Mappings...
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* LEFT PANEL: Course & Faculty Selection (Resizable 290-500px, Collapsible to 42px Rail, Hidden in Focus Mode) */}
+            {!focusTimetableMode && (
+              <>
+                {isLeftCollapsed ? (
+                  <aside className="no-print shrink-0 w-[42px] border-r border-[#DADCE0] bg-white flex flex-col items-center py-2.5 gap-3 select-none">
+                    <button
+                      onClick={() => setIsLeftCollapsed(false)}
+                      title="Expand Course & Faculty Selector"
+                      className="rounded-lg border border-[#DADCE0] bg-[#F8F9FC] hover:bg-[#E8F0FE] p-1.5 text-[#1A73E8] cursor-pointer"
+                    >
+                      <PanelLeftOpen className="h-4 w-4" />
+                    </button>
+                    <div
+                      title={`${uniqueCourseCount} Selected Courses`}
+                      className="flex flex-col items-center gap-0.5 text-[10px] font-bold text-[#202124]"
+                    >
+                      <BookOpen className="h-3.5 w-3.5 text-[#1A73E8]" />
+                      <span>{uniqueCourseCount}C</span>
+                    </div>
+                    <div
+                      title={`${clashReport?.total_credits ?? 0} Credits`}
+                      className="rounded bg-[#E8F0FE] px-1 py-0.5 font-mono text-[9.5px] font-bold text-[#174EA6]"
+                    >
+                      {clashReport?.total_credits ?? 0}Cr
+                    </div>
+                  </aside>
+                ) : (
+                  <aside
+                    style={{ '--panel-w': `${leftPanelWidth}px` } as React.CSSProperties}
+                    className="no-print shrink-0 w-full lg:w-[var(--panel-w)] h-[460px] lg:h-full min-h-0 flex flex-col overflow-hidden"
+                  >
+                    <CourseTeacherSlotSelector
+                      courses={courses}
+                      activeCourseCode={activeCourseCode}
+                      onSelectCourseCode={(code) => setActiveCourseCode(code)}
+                      selectedSections={selectedSections}
+                      selectedSectionIds={selectedSectionIds}
+                      clashReport={clashReport}
+                      campus={campus}
+                      lastUpdatedLabel={lastUpdatedLabel}
+                      onSelectOrSwitchSection={handleSelectOrSwitchSection}
+                      onRemoveSection={handleRemoveSection}
+                      onCollapsePanel={() => setIsLeftCollapsed(true)}
+                    />
+                  </aside>
+                )}
+
+                {/* Vertical Resizer Handle (Desktop) */}
+                {!isLeftCollapsed && (
+                  <div
+                    onMouseDown={() => {
+                      isResizingRef.current = true;
+                      document.body.style.cursor = 'col-resize';
+                      document.body.style.userSelect = 'none';
+                    }}
+                    title="Drag to resize Course & Faculty Selector panel"
+                    className="no-print hidden lg:block w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-[#1A73E8]/40 transition-colors"
+                  />
+                )}
+              </>
+            )}
+
+            {/* RIGHT PANEL: Weekly Timetable Workspace (Occupies All Remaining Horizontal & Vertical Space) */}
+            <section className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden bg-[#F8F9FC] p-1.5 lg:p-2 gap-1.5">
+              {/* SINGLE-ROW TIMETABLE CONTROL BAR (Status/Clashes + Plan Tabs + 3 Display Modes + Focus Toggle) */}
+              <div className="no-print shrink-0 rounded-lg border border-[#DADCE0] bg-white px-2.5 py-1.5 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+                {/* Left: Status Badge + Plan Tabs (Primary / Backup 1 / Backup 2) */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {focusTimetableMode && (
+                    <span className="text-[12px] font-bold text-[#202124] mr-1">
+                      {semester} ({campus === 'vellore' ? 'VIT Vellore' : 'VIT Chennai'})
                     </span>
-                    <span className="rounded-full bg-[#E8F0FE] px-2.5 py-0.5 font-mono text-[11px] font-bold text-[#174EA6]">
-                      {uniqueCourseCount} Courses • {clashReport?.total_credits ?? 0} Credits
-                    </span>
-                    <span className="hidden xl:inline text-[11px] text-[#5F6368]">
-                      • Scroll horizontally to inspect all 12 periods with full faculty & venue details
-                    </span>
+                  )}
+
+                  {/* Plan Switcher */}
+                  <div className="inline-flex rounded-md border border-[#DADCE0] bg-[#F1F3F4] p-0.5">
+                    {(['primary', 'backup1', 'backup2'] as PlanSlotKey[]).map((key) => {
+                      const isActive = activePlanKey === key;
+                      const count = planSectionsMap[key]?.length ?? 0;
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => setActivePlanKey(key)}
+                          className={`rounded px-2 py-0.5 text-[11px] font-bold transition-colors cursor-pointer ${
+                            isActive
+                              ? 'bg-white text-[#1A73E8] shadow-2xs'
+                              : 'text-[#5F6368] hover:text-[#202124]'
+                          }`}
+                        >
+                          {PLAN_LABELS[key]} ({count})
+                        </button>
+                      );
+                    })}
                   </div>
 
-                  {/* Readability & View Controls */}
-                  <div className="no-print flex flex-wrap items-center gap-1.5 text-[12px]">
-                    {/* Detailed View vs Compact View */}
-                    <div className="inline-flex rounded-lg border border-[#DADCE0] bg-white p-0.5">
-                      <button
-                        onClick={() => setFitToPage(false)}
-                        className={`rounded-md px-2.5 py-1 text-[11.5px] font-bold transition-colors cursor-pointer ${
-                          !fitToPage
-                            ? 'bg-[#E8F0FE] text-[#1A73E8]'
-                            : 'text-[#5F6368] hover:text-[#202124]'
-                        }`}
-                        title="Detailed View — Full faculty names, 2-line course titles, and prominent PRP/SJT venue codes"
-                      >
-                        Detailed View
-                      </button>
-                      <button
-                        onClick={() => setFitToPage(true)}
-                        className={`rounded-md px-2.5 py-1 text-[11.5px] font-bold transition-colors cursor-pointer ${
-                          fitToPage
-                            ? 'bg-[#E8F0FE] text-[#1A73E8]'
-                            : 'text-[#5F6368] hover:text-[#202124]'
-                        }`}
-                        title="Compact View — Slightly narrower columns while keeping faculty & venue readable"
-                      >
-                        Compact View
-                      </button>
+                  {/* Clash Status Summary Pill */}
+                  {activeClashes.length === 0 ? (
+                    <div className="inline-flex items-center gap-1.5 rounded-md border border-[#188038]/30 bg-[#E6F4EA]/80 px-2 py-0.5 text-[11px] font-semibold text-[#137333]">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-[#188038]" />
+                      <span>
+                        No clashes · {uniqueCourseCount} Courses ({selectedSections.length} sections) ·{' '}
+                        <strong>{clashReport?.total_credits ?? 0} Credits</strong>
+                      </span>
                     </div>
+                  ) : (
+                    <button
+                      onClick={() => setClashDrawerExpanded((v) => !v)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-[#D93025] bg-[#FCE8E6] px-2.5 py-0.5 text-[11px] font-bold text-[#A50E0E] cursor-pointer"
+                    >
+                      <AlertOctagon className="h-3.5 w-3.5 text-[#D93025]" />
+                      <span>
+                        {activeClashes.length} Clash Warning(s) — Click to Resolve
+                      </span>
+                    </button>
+                  )}
+                </div>
 
-                    {/* Grid vs Detailed Class List Table */}
-                    <div className="inline-flex rounded-lg border border-[#DADCE0] bg-white p-0.5">
-                      <button
-                        onClick={() => setGridViewMode('week')}
-                        className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11.5px] font-bold transition-colors cursor-pointer ${
-                          gridViewMode === 'week'
-                            ? 'bg-[#E8F0FE] text-[#1A73E8]'
-                            : 'text-[#5F6368] hover:text-[#202124]'
-                        }`}
-                      >
-                        <LayoutGrid className="h-3 w-3" />
-                        <span>Weekly Grid</span>
-                      </button>
-                      <button
-                        onClick={() => setGridViewMode('slotlist')}
-                        className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11.5px] font-bold transition-colors cursor-pointer ${
-                          gridViewMode === 'slotlist'
-                            ? 'bg-[#E8F0FE] text-[#1A73E8]'
-                            : 'text-[#5F6368] hover:text-[#202124]'
-                        }`}
-                      >
-                        <ListFilter className="h-3 w-3" />
-                        <span>Class List</span>
-                      </button>
-                    </div>
+                {/* Right: 3 Timetable Display Modes + Saturday + Focus Timetable Toggle */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {/* Three Timetable Display Modes Switcher */}
+                  <div className="inline-flex rounded-md border border-[#DADCE0] bg-[#F1F3F4] p-0.5">
+                    <button
+                      onClick={() => setDisplayMode('compact')}
+                      title="Compact Grid (Default) — Fits maximum classes on one laptop screen"
+                      className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-bold transition-colors cursor-pointer ${
+                        displayMode === 'compact'
+                          ? 'bg-white text-[#1A73E8] shadow-2xs'
+                          : 'text-[#5F6368] hover:text-[#202124]'
+                      }`}
+                    >
+                      <LayoutGrid className="h-3 w-3" />
+                      <span>Compact Grid</span>
+                    </button>
+                    <button
+                      onClick={() => setDisplayMode('detailed')}
+                      title="Detailed Grid — Expanded cards with multi-line titles & faculty"
+                      className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-bold transition-colors cursor-pointer ${
+                        displayMode === 'detailed'
+                          ? 'bg-white text-[#1A73E8] shadow-2xs'
+                          : 'text-[#5F6368] hover:text-[#202124]'
+                      }`}
+                    >
+                      <Columns3 className="h-3 w-3" />
+                      <span>Detailed Grid</span>
+                    </button>
+                    <button
+                      onClick={() => setDisplayMode('schedule')}
+                      title="Schedule List — Complete table of Day, Time, Course, Faculty, Venue & Slot"
+                      className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-bold transition-colors cursor-pointer ${
+                        displayMode === 'schedule'
+                          ? 'bg-white text-[#1A73E8] shadow-2xs'
+                          : 'text-[#5F6368] hover:text-[#202124]'
+                      }`}
+                    >
+                      <ListFilter className="h-3 w-3" />
+                      <span>Schedule List</span>
+                    </button>
+                  </div>
 
-                    {/* Saturday Toggle */}
+                  {/* Saturday Toggle */}
+                  {displayMode !== 'schedule' && (
                     <button
                       onClick={() => setShowSaturday((s) => !s)}
-                      className={`rounded-lg border px-2.5 py-1 text-[11.5px] font-bold cursor-pointer ${
+                      className={`rounded-md border px-2 py-0.5 text-[11px] font-bold cursor-pointer ${
                         showSaturday
                           ? 'border-[#1A73E8] bg-[#E8F0FE] text-[#1A73E8]'
                           : 'border-[#DADCE0] bg-white text-[#5F6368] hover:text-[#202124]'
                       }`}
                     >
-                      {showSaturday ? 'Mon–Sat' : '+ Saturday'}
+                      {showSaturday ? 'Mon–Sat' : '+ Sat'}
                     </button>
+                  )}
 
-                    {/* Expand Timetable Full Width Toggle */}
+                  {/* Quick Download PDF in Focus Mode */}
+                  {focusTimetableMode && (
                     <button
-                      onClick={() => setIsTimetableExpanded((e) => !e)}
-                      title={
-                        isTimetableExpanded
-                          ? 'Restore split-screen view with Course/Teacher Selector on the left'
-                          : 'Temporarily hide left panel to view Timetable across 100% of screen width'
-                      }
-                      className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11.5px] font-bold cursor-pointer ${
-                        isTimetableExpanded
-                          ? 'border-[#1A73E8] bg-[#1A73E8] text-white'
-                          : 'border-[#DADCE0] bg-white text-[#202124] hover:bg-[#F1F3F4]'
-                      }`}
+                      onClick={() => handleDownloadPdf()}
+                      className="inline-flex items-center gap-1 rounded-md bg-[#1A73E8] hover:bg-[#1557B0] px-2.5 py-0.5 text-[11px] font-bold text-white cursor-pointer"
                     >
-                      {isTimetableExpanded ? (
-                        <>
-                          <Minimize2 className="h-3.5 w-3.5" />
-                          <span>Show Course Selector</span>
-                        </>
-                      ) : (
-                        <>
-                          <Maximize2 className="h-3.5 w-3.5 text-[#1A73E8]" />
-                          <span>Expand Full Width</span>
-                        </>
-                      )}
+                      <Download className="h-3 w-3" />
+                      <span>PDF ({pdfPaperSize.toUpperCase()})</span>
                     </button>
-                  </div>
-                </div>
+                  )}
 
+                  {/* Focus Timetable Mode Toggle */}
+                  <button
+                    onClick={() => setFocusTimetableMode((f) => !f)}
+                    title={
+                      focusTimetableMode
+                        ? 'Return to normal workspace with Course Selector'
+                        : 'Focus Timetable — Full-screen timetable mode'
+                    }
+                    className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-0.5 text-[11px] font-bold transition-colors cursor-pointer ${
+                      focusTimetableMode
+                        ? 'border-[#1A73E8] bg-[#1A73E8] text-white'
+                        : 'border-[#DADCE0] bg-white text-[#202124] hover:bg-[#F1F3F4]'
+                    }`}
+                  >
+                    {focusTimetableMode ? (
+                      <>
+                        <Minimize2 className="h-3 w-3" />
+                        <span>Exit Focus Mode</span>
+                      </>
+                    ) : (
+                      <>
+                        <Maximize2 className="h-3 w-3 text-[#1A73E8]" />
+                        <span>Focus Timetable</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* COMPACT CLASH RESOLUTION DRAWER (Visible when clashes exist) */}
+              {activeClashes.length > 0 && (
+                <div className="no-print shrink-0 rounded-lg border border-[#D93025] bg-[#FCE8E6] px-3 py-1.5 text-[11.5px] space-y-1">
+                  {activeClashes.map((clash) => {
+                    const isConfirmed = clash.is_confirmed && clash.severity === 'ERROR';
+                    return (
+                      <div
+                        key={clash.clash_id}
+                        className="flex flex-wrap items-center justify-between gap-2"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          {isConfirmed ? (
+                            <AlertOctagon className="h-3.5 w-3.5 text-[#D93025] shrink-0" />
+                          ) : (
+                            <AlertTriangle className="h-3.5 w-3.5 text-[#B06000] shrink-0" />
+                          )}
+                          <span className="font-bold text-[#A50E0E]">
+                            {isConfirmed
+                              ? `${clash.course_a_code} (${clash.course_a_slot}) clashes with ${clash.course_b_code} (${clash.course_b_slot}) on ${clash.day} ${clash.time_interval}`
+                              : clash.explanation}
+                          </span>
+                        </div>
+
+                        {(clashDrawerExpanded || activeClashes.length <= 2) &&
+                          clash.suggested_alternatives.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="text-[10.5px] font-bold text-[#A50E0E]">
+                                Switch to:
+                              </span>
+                              {clash.suggested_alternatives.slice(0, 3).map((alt) => {
+                                const oldId =
+                                  alt.course_code === clash.course_a_code
+                                    ? clash.course_a_section_id
+                                    : clash.course_b_section_id;
+                                return (
+                                  <button
+                                    key={alt.section_id}
+                                    onClick={() =>
+                                      handleSwitchSectionById(oldId, alt.section_id)
+                                    }
+                                    className="inline-flex items-center gap-1 rounded border border-[#188038] bg-white hover:bg-[#E6F4EA] px-1.5 py-0.5 text-[10px] font-bold text-[#137333] cursor-pointer"
+                                  >
+                                    <span>{alt.course_code}</span>
+                                    <span>→</span>
+                                    <span>{alt.faculty_name}</span>
+                                    <span className="font-mono">
+                                      ({alt.slot_combination}·{alt.venue})
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* MAIN TIMETABLE GRID CONTAINER (Fills Remaining Workspace Height) */}
+              <div className="flex-1 min-h-0 flex flex-col rounded-xl border border-[#DADCE0] bg-white shadow-2xs overflow-hidden print-surface">
                 <TimetableGrid
                   courses={courses}
                   selectedSections={selectedSections}
@@ -980,22 +1059,23 @@ export const DashboardPage: React.FC = () => {
                   onSwitchSection={(oldId, newId) => handleSwitchSectionById(oldId, newId)}
                   onOpenFacultyComparison={(code) => {
                     setActiveCourseCode(code);
-                    setIsTimetableExpanded(false);
+                    setIsLeftCollapsed(false);
+                    setFocusTimetableMode(false);
                   }}
                   onClickEmptyCell={() => {
                     // Clicking an empty cell keeps focus on the left selector
                   }}
                 />
               </div>
-            </div>
-          </div>
+            </section>
+          </>
         )}
       </main>
 
       {/* TOAST FEEDBACK */}
       {toastMessage && (
-        <div className="no-print fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-xl bg-[#202124] px-3.5 py-2 text-[12px] font-medium text-white shadow-lg">
-          <CheckCircle2 className="h-4 w-4 text-[#81C995]" />
+        <div className="no-print fixed bottom-3 right-3 z-50 flex items-center gap-1.5 rounded-lg bg-[#202124] px-3 py-1.5 text-[11.5px] font-medium text-white shadow-lg">
+          <CheckCircle2 className="h-3.5 w-3.5 text-[#81C995]" />
           <span>{toastMessage}</span>
         </div>
       )}
