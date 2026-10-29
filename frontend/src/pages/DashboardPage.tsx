@@ -19,7 +19,6 @@ import {
   Minimize2,
   FileText,
   LayoutGrid,
-  ListFilter,
   Copy,
   MoreHorizontal,
   PanelLeftOpen,
@@ -49,10 +48,10 @@ import { CourseTeacherSlotSelector } from '../components/CourseTeacherSlotSelect
 import { TimetableGrid } from '../components/TimetableGrid';
 
 const LOCAL_STORAGE_KEY = 'vit_ffcs_maker_saved_plans_v2';
-const SESSION_LAYOUT_KEY = 'vit_ffcs_layout_prefs_v1';
+const SESSION_LAYOUT_KEY = 'vit_ffcs_layout_prefs_v2';
 
 type PlanSlotKey = 'primary' | 'backup1' | 'backup2';
-type TimetableDisplayMode = 'compact' | 'detailed' | 'schedule';
+type TimetableDisplayMode = 'compact' | 'detailed';
 
 const PLAN_LABELS: Record<PlanSlotKey, string> = {
   primary: 'Primary',
@@ -67,26 +66,28 @@ export const DashboardPage: React.FC = () => {
   const [showSaturday, setShowSaturday] = useState(false);
 
   // Layout & Display Mode State (Persisted in sessionStorage)
-  // Default: Compact Grid ('compact') so all weekdays & 12 periods fit in a single laptop screen
+  // Default: Compact Week ('compact') so all weekdays & 12 periods fit in a single laptop screen
   const [displayMode, setDisplayMode] = useState<TimetableDisplayMode>(() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(SESSION_LAYOUT_KEY) || '{}');
-      if (saved.displayMode) return saved.displayMode;
+      if (saved.displayMode === 'compact' || saved.displayMode === 'detailed') {
+        return saved.displayMode;
+      }
     } catch {
       // ignore
     }
-    return typeof window !== 'undefined' && window.innerWidth < 900 ? 'schedule' : 'compact';
+    return 'compact';
   });
   const [leftPanelWidth, setLeftPanelWidth] = useState<number>(() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(SESSION_LAYOUT_KEY) || '{}');
       if (typeof saved.leftPanelWidth === 'number') {
-        return Math.min(500, Math.max(290, saved.leftPanelWidth));
+        return Math.min(380, Math.max(260, saved.leftPanelWidth));
       }
     } catch {
       // ignore
     }
-    return 368;
+    return 296;
   });
   const [isLeftCollapsed, setIsLeftCollapsed] = useState<boolean>(() => {
     try {
@@ -148,11 +149,11 @@ export const DashboardPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isResizingRef = useRef(false);
 
-  // Drag-resize handler for Left Panel (290px - 500px)
+  // Drag-resize handler for Left Panel (260px - 380px)
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!isResizingRef.current) return;
-      const nextWidth = Math.min(500, Math.max(290, e.clientX));
+      const nextWidth = Math.min(380, Math.max(260, e.clientX));
       setLeftPanelWidth(nextWidth);
     };
     const onMouseUp = () => {
@@ -541,39 +542,25 @@ export const DashboardPage: React.FC = () => {
     [selectedSections]
   );
 
-  // Derive TimetableGrid props from the 3 display modes ('compact' | 'detailed' | 'schedule')
-  const gridViewMode = displayMode === 'schedule' ? 'slotlist' : 'week';
+  // Derive TimetableGrid props from the 2 display modes ('compact' | 'detailed')
+  const gridViewMode = 'week';
   const fitToPage = displayMode === 'compact';
 
   return (
     <div className="min-h-screen lg:h-screen lg:overflow-hidden flex flex-col bg-[#F8F9FC] text-[#202124]">
-      {/* 1. COMPACT TOP NAVIGATION BAR (~52px height) */}
+      {/* 1. COMPACT STICKY TOP TOOLBAR (~44px height) */}
       {!focusTimetableMode ? (
-        <header className="no-print shrink-0 border-b border-[#DADCE0] bg-white px-3 py-1.5 shadow-2xs z-30">
+        <header className="no-print shrink-0 border-b border-[#DADCE0] bg-white px-3 py-1 shadow-2xs z-30">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            {/* Left: App Brand, Campus, Semester, Data Status + Sync + Import */}
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1.5">
-                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[#1A73E8] text-white">
+            {/* Left: App Brand, Semester, Campus, Data Sync Status, Import Workbook */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex items-center gap-1.5 mr-0.5">
+                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[#1A73E8] text-white">
                   <Calendar className="h-3.5 w-3.5" />
                 </div>
-                <span className="text-[14px] font-bold tracking-tight text-[#202124]">
+                <span className="text-[13px] font-bold tracking-tight text-[#202124]">
                   VIT FFCS Planner
                 </span>
-              </div>
-
-              {/* Campus Selector */}
-              <div className="flex items-center gap-1 rounded-md border border-[#DADCE0] bg-[#F8F9FC] px-2 py-0.5 text-[11px]">
-                <MapPin className="h-3 w-3 text-[#188038]" />
-                <select
-                  aria-label="Select Campus"
-                  value={campus}
-                  onChange={(e) => setCampus(e.target.value)}
-                  className="bg-transparent font-semibold text-[#202124] focus:outline-none cursor-pointer"
-                >
-                  <option value="vellore">Vellore</option>
-                  <option value="chennai">Chennai</option>
-                </select>
               </div>
 
               {/* Semester Selector */}
@@ -590,7 +577,21 @@ export const DashboardPage: React.FC = () => {
                 </select>
               </div>
 
-              {/* Data Status + Sync + Import Workbook */}
+              {/* Campus Selector */}
+              <div className="flex items-center gap-1 rounded-md border border-[#DADCE0] bg-[#F8F9FC] px-2 py-0.5 text-[11px]">
+                <MapPin className="h-3 w-3 text-[#188038]" />
+                <select
+                  aria-label="Select Campus"
+                  value={campus}
+                  onChange={(e) => setCampus(e.target.value)}
+                  className="bg-transparent font-semibold text-[#202124] focus:outline-none cursor-pointer"
+                >
+                  <option value="vellore">Vellore</option>
+                  <option value="chennai">Chennai</option>
+                </select>
+              </div>
+
+              {/* Data Sync Status */}
               <div className="hidden md:flex items-center gap-1 rounded-md border border-[#DADCE0] bg-[#F8F9FC] px-2 py-0.5 text-[10.5px] text-[#5F6368]">
                 <Database className="h-3 w-3 text-[#1A73E8]" />
                 <span>
@@ -605,65 +606,39 @@ export const DashboardPage: React.FC = () => {
                   <RefreshCw className={`h-2.5 w-2.5 ${syncingNo8am ? 'animate-spin' : ''}`} />
                   <span>{syncingNo8am ? '...' : 'Sync'}</span>
                 </button>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Import VIT course allocation .xlsx or .csv workbook"
-                  className="inline-flex items-center gap-0.5 rounded border border-[#DADCE0] bg-white px-1.5 py-0.2 font-semibold text-[#202124] hover:bg-[#F1F3F4] cursor-pointer"
-                >
-                  <Upload className="h-2.5 w-2.5" />
-                  <span>Import</span>
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.csv"
-                  onChange={handleImportWorkbookFile}
-                  className="hidden"
-                />
               </div>
+
+              {/* Import Workbook */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                title="Import VIT course allocation .xlsx or .csv workbook"
+                className="inline-flex items-center gap-1 rounded-md border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2 py-0.5 text-[11px] font-semibold text-[#202124] cursor-pointer"
+              >
+                <Upload className="h-3 w-3 text-[#1A73E8]" />
+                <span>Import Workbook</span>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.csv"
+                onChange={handleImportWorkbookFile}
+                className="hidden"
+              />
             </div>
 
-            {/* Right: Essential PDF & State Controls + Overflow Menu */}
+            {/* Right: Download PDF, Save, Restore, Clear + Overflow Menu */}
             <div className="flex flex-wrap items-center gap-1.5">
-              {/* PDF Size */}
-              <div className="flex items-center rounded-md border border-[#DADCE0] bg-[#F8F9FC] px-1.5 py-0.5 text-[11px]">
-                <span className="text-[#5F6368] mr-1">PDF:</span>
-                <select
-                  aria-label="PDF Size"
-                  value={pdfPaperSize}
-                  onChange={(e) => setPdfPaperSize(e.target.value as PdfPaperSize)}
-                  className="bg-transparent font-bold text-[#202124] focus:outline-none cursor-pointer"
-                >
-                  <option value="a3">A3 Landscape</option>
-                  <option value="a4">A4 Landscape</option>
-                </select>
-              </div>
-
-              {/* PDF Layout */}
-              <div className="flex items-center rounded-md border border-[#DADCE0] bg-[#F8F9FC] px-1.5 py-0.5 text-[11px]">
-                <select
-                  aria-label="PDF Layout"
-                  value={pdfContentMode}
-                  onChange={(e) => setPdfContentMode(e.target.value as PdfContentMode)}
-                  className="bg-transparent font-semibold text-[#202124] focus:outline-none cursor-pointer"
-                >
-                  <option value="both">Grid + List (2p)</option>
-                  <option value="visual">Visual Grid</option>
-                  <option value="detailed">Detailed List</option>
-                </select>
-              </div>
-
               {/* Download PDF */}
               <button
                 onClick={() => handleDownloadPdf()}
-                title="Download formatted Landscape PDF"
+                title={`Download formatted Landscape ${pdfPaperSize.toUpperCase()} PDF`}
                 className="inline-flex items-center gap-1 rounded-md bg-[#1A73E8] hover:bg-[#1557B0] px-2.5 py-1 text-[11px] font-bold text-white cursor-pointer"
               >
                 <Download className="h-3 w-3" />
                 <span>Download PDF</span>
               </button>
 
-              {/* Save & Restore */}
+              {/* Save */}
               <button
                 onClick={handleSaveToLocal}
                 title="Save timetable plans"
@@ -673,6 +648,7 @@ export const DashboardPage: React.FC = () => {
                 <span>Save</span>
               </button>
 
+              {/* Restore */}
               <button
                 onClick={handleRestoreFromLocal}
                 title="Restore saved plans"
@@ -692,11 +668,11 @@ export const DashboardPage: React.FC = () => {
                 <span>Clear</span>
               </button>
 
-              {/* Overflow Menu for Secondary Actions */}
+              {/* Overflow Menu for Secondary Options (PDF Size, PDF Layout, Print, Excel, Backup Plans) */}
               <div className="relative">
                 <button
                   onClick={() => setShowOverflowMenu((o) => !o)}
-                  title="More export & backup options"
+                  title="PDF settings, Print, Excel export & Backup plans"
                   className="inline-flex items-center justify-center rounded-md border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] p-1 text-[#5F6368] hover:text-[#202124] cursor-pointer"
                 >
                   <MoreHorizontal className="h-4 w-4" />
@@ -705,14 +681,43 @@ export const DashboardPage: React.FC = () => {
                 {showOverflowMenu && (
                   <div
                     onMouseLeave={() => setShowOverflowMenu(false)}
-                    className="absolute right-0 mt-1 w-48 rounded-xl border border-[#DADCE0] bg-white p-1.5 shadow-xl z-50 space-y-0.5 text-[11.5px]"
+                    className="absolute right-0 mt-1 w-56 rounded-xl border border-[#DADCE0] bg-white p-2 shadow-xl z-50 space-y-1.5 text-[11px]"
                   >
+                    <div className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#5F6368]">
+                      PDF Export Settings
+                    </div>
+                    <div className="flex items-center justify-between gap-2 px-1.5">
+                      <span className="text-[#5F6368] font-medium">Page Size:</span>
+                      <select
+                        aria-label="PDF Size"
+                        value={pdfPaperSize}
+                        onChange={(e) => setPdfPaperSize(e.target.value as PdfPaperSize)}
+                        className="rounded border border-[#DADCE0] bg-[#F8F9FC] px-1.5 py-0.5 font-semibold text-[#202124] focus:outline-none cursor-pointer"
+                      >
+                        <option value="a3">A3 Landscape</option>
+                        <option value="a4">A4 Landscape</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 px-1.5 pb-1 border-b border-[#E8EAED]">
+                      <span className="text-[#5F6368] font-medium">Content:</span>
+                      <select
+                        aria-label="PDF Layout"
+                        value={pdfContentMode}
+                        onChange={(e) => setPdfContentMode(e.target.value as PdfContentMode)}
+                        className="rounded border border-[#DADCE0] bg-[#F8F9FC] px-1.5 py-0.5 font-semibold text-[#202124] focus:outline-none cursor-pointer"
+                      >
+                        <option value="both">Grid + List (2p)</option>
+                        <option value="visual">Visual Grid</option>
+                        <option value="detailed">Detailed List</option>
+                      </select>
+                    </div>
+
                     <button
                       onClick={() => {
                         setShowOverflowMenu(false);
                         handleDownloadPdf('detailed', 'download');
                       }}
-                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-medium text-[#202124] hover:bg-[#F8F9FC] cursor-pointer"
+                      className="w-full flex items-center gap-2 rounded-lg px-2 py-1 text-left font-medium text-[#202124] hover:bg-[#F8F9FC] cursor-pointer"
                     >
                       <FileText className="h-3.5 w-3.5 text-[#1A73E8]" />
                       <span>Export Detailed Class List</span>
@@ -722,7 +727,7 @@ export const DashboardPage: React.FC = () => {
                         setShowOverflowMenu(false);
                         handleDownloadPdf(pdfContentMode, 'print');
                       }}
-                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-medium text-[#202124] hover:bg-[#F8F9FC] cursor-pointer"
+                      className="w-full flex items-center gap-2 rounded-lg px-2 py-1 text-left font-medium text-[#202124] hover:bg-[#F8F9FC] cursor-pointer"
                     >
                       <Printer className="h-3.5 w-3.5 text-[#5F6368]" />
                       <span>Print Landscape Timetable</span>
@@ -732,7 +737,7 @@ export const DashboardPage: React.FC = () => {
                         setShowOverflowMenu(false);
                         handleExportExcel();
                       }}
-                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-medium text-[#202124] hover:bg-[#F8F9FC] cursor-pointer"
+                      className="w-full flex items-center gap-2 rounded-lg px-2 py-1 text-left font-medium text-[#202124] hover:bg-[#F8F9FC] cursor-pointer"
                     >
                       <Download className="h-3.5 w-3.5 text-[#188038]" />
                       <span>Export Excel (.xlsx)</span>
@@ -742,7 +747,7 @@ export const DashboardPage: React.FC = () => {
                         setShowOverflowMenu(false);
                         handleClonePrimaryToActiveBackup();
                       }}
-                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-medium text-[#202124] hover:bg-[#F8F9FC] cursor-pointer"
+                      className="w-full flex items-center gap-2 rounded-lg px-2 py-1 text-left font-medium text-[#202124] hover:bg-[#F8F9FC] cursor-pointer"
                     >
                       <Copy className="h-3.5 w-3.5 text-[#1A73E8]" />
                       <span>Copy Primary → Backup</span>
@@ -766,28 +771,28 @@ export const DashboardPage: React.FC = () => {
           </div>
         ) : (
           <>
-            {/* LEFT PANEL: Course & Faculty Selection (Resizable 290-500px, Collapsible to 42px Rail, Hidden in Focus Mode) */}
+            {/* LEFT PANEL: Compact Course & Faculty Selection (Default 296px, Resizable 260-380px, Collapsible to 36px Rail) */}
             {!focusTimetableMode && (
               <>
                 {isLeftCollapsed ? (
-                  <aside className="no-print shrink-0 w-[42px] border-r border-[#DADCE0] bg-white flex flex-col items-center py-2.5 gap-3 select-none">
+                  <aside className="no-print shrink-0 w-[36px] border-r border-[#DADCE0] bg-white flex flex-col items-center py-2 gap-2.5 select-none">
                     <button
                       onClick={() => setIsLeftCollapsed(false)}
                       title="Expand Course & Faculty Selector"
-                      className="rounded-lg border border-[#DADCE0] bg-[#F8F9FC] hover:bg-[#E8F0FE] p-1.5 text-[#1A73E8] cursor-pointer"
+                      className="rounded-md border border-[#DADCE0] bg-[#F8F9FC] hover:bg-[#E8F0FE] p-1 text-[#1A73E8] cursor-pointer"
                     >
-                      <PanelLeftOpen className="h-4 w-4" />
+                      <PanelLeftOpen className="h-3.5 w-3.5" />
                     </button>
                     <div
                       title={`${uniqueCourseCount} Selected Courses`}
-                      className="flex flex-col items-center gap-0.5 text-[10px] font-bold text-[#202124]"
+                      className="flex flex-col items-center gap-0.5 text-[9.5px] font-bold text-[#202124]"
                     >
-                      <BookOpen className="h-3.5 w-3.5 text-[#1A73E8]" />
+                      <BookOpen className="h-3 w-3 text-[#1A73E8]" />
                       <span>{uniqueCourseCount}C</span>
                     </div>
                     <div
                       title={`${clashReport?.total_credits ?? 0} Credits`}
-                      className="rounded bg-[#E8F0FE] px-1 py-0.5 font-mono text-[9.5px] font-bold text-[#174EA6]"
+                      className="rounded bg-[#E8F0FE] px-1 py-0.5 font-mono text-[9px] font-bold text-[#174EA6]"
                     >
                       {clashReport?.total_credits ?? 0}Cr
                     </div>
@@ -795,7 +800,7 @@ export const DashboardPage: React.FC = () => {
                 ) : (
                   <aside
                     style={{ '--panel-w': `${leftPanelWidth}px` } as React.CSSProperties}
-                    className="no-print shrink-0 w-full lg:w-[var(--panel-w)] h-[460px] lg:h-full min-h-0 flex flex-col overflow-hidden"
+                    className="no-print shrink-0 w-full lg:w-[var(--panel-w)] h-[420px] lg:h-full min-h-0 flex flex-col overflow-hidden"
                   >
                     <CourseTeacherSlotSelector
                       courses={courses}
@@ -821,7 +826,7 @@ export const DashboardPage: React.FC = () => {
                       document.body.style.cursor = 'col-resize';
                       document.body.style.userSelect = 'none';
                     }}
-                    title="Drag to resize Course & Faculty Selector panel"
+                    title="Drag to resize Course & Faculty Selector panel (260px–380px)"
                     className="no-print hidden lg:block w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-[#1A73E8]/40 transition-colors"
                   />
                 )}
@@ -829,13 +834,13 @@ export const DashboardPage: React.FC = () => {
             )}
 
             {/* RIGHT PANEL: Weekly Timetable Workspace (Occupies All Remaining Horizontal & Vertical Space) */}
-            <section className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden bg-[#F8F9FC] p-1.5 lg:p-2 gap-1.5">
-              {/* SINGLE-ROW TIMETABLE CONTROL BAR (Status/Clashes + Plan Tabs + 3 Display Modes + Focus Toggle) */}
-              <div className="no-print shrink-0 rounded-lg border border-[#DADCE0] bg-white px-2.5 py-1.5 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
-                {/* Left: Status Badge + Plan Tabs (Primary / Backup 1 / Backup 2) */}
-                <div className="flex flex-wrap items-center gap-2">
+            <section className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden bg-[#F8F9FC] p-1 lg:p-1.5 gap-1">
+              {/* COMPACT TIMETABLE CONTROL BAR (Status/Clashes + Plan Tabs + 2 Viewing Modes + Focus Toggle) */}
+              <div className="no-print shrink-0 rounded-lg border border-[#DADCE0] bg-white px-2 py-1 flex flex-wrap items-center justify-between gap-1.5 shadow-2xs">
+                {/* Left: Plan Tabs + Clash/Credit Status */}
+                <div className="flex flex-wrap items-center gap-1.5">
                   {focusTimetableMode && (
-                    <span className="text-[12px] font-bold text-[#202124] mr-1">
+                    <span className="text-[11.5px] font-bold text-[#202124] mr-1">
                       {semester} ({campus === 'vellore' ? 'VIT Vellore' : 'VIT Chennai'})
                     </span>
                   )}
@@ -849,7 +854,7 @@ export const DashboardPage: React.FC = () => {
                         <button
                           key={key}
                           onClick={() => setActivePlanKey(key)}
-                          className={`rounded px-2 py-0.5 text-[11px] font-bold transition-colors cursor-pointer ${
+                          className={`rounded px-1.5 py-0.5 text-[10.5px] font-bold transition-colors cursor-pointer ${
                             isActive
                               ? 'bg-white text-[#1A73E8] shadow-2xs'
                               : 'text-[#5F6368] hover:text-[#202124]'
@@ -863,19 +868,19 @@ export const DashboardPage: React.FC = () => {
 
                   {/* Clash Status Summary Pill */}
                   {activeClashes.length === 0 ? (
-                    <div className="inline-flex items-center gap-1.5 rounded-md border border-[#188038]/30 bg-[#E6F4EA]/80 px-2 py-0.5 text-[11px] font-semibold text-[#137333]">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-[#188038]" />
+                    <div className="inline-flex items-center gap-1 rounded-md border border-[#188038]/30 bg-[#E6F4EA]/80 px-2 py-0.5 text-[10.5px] font-semibold text-[#137333]">
+                      <CheckCircle2 className="h-3 w-3 text-[#188038]" />
                       <span>
                         No clashes · {uniqueCourseCount} Courses ({selectedSections.length} sections) ·{' '}
-                        <strong>{clashReport?.total_credits ?? 0} Credits</strong>
+                        <strong>{clashReport?.total_credits ?? 0} Cr</strong>
                       </span>
                     </div>
                   ) : (
                     <button
                       onClick={() => setClashDrawerExpanded((v) => !v)}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-[#D93025] bg-[#FCE8E6] px-2.5 py-0.5 text-[11px] font-bold text-[#A50E0E] cursor-pointer"
+                      className="inline-flex items-center gap-1 rounded-md border border-[#D93025] bg-[#FCE8E6] px-2 py-0.5 text-[10.5px] font-bold text-[#A50E0E] cursor-pointer"
                     >
-                      <AlertOctagon className="h-3.5 w-3.5 text-[#D93025]" />
+                      <AlertOctagon className="h-3 w-3 text-[#D93025]" />
                       <span>
                         {activeClashes.length} Clash Warning(s) — Click to Resolve
                       </span>
@@ -883,67 +888,52 @@ export const DashboardPage: React.FC = () => {
                   )}
                 </div>
 
-                {/* Right: 3 Timetable Display Modes + Saturday + Focus Timetable Toggle */}
+                {/* Right: Two Simple Viewing Modes (Compact Week vs Detailed View) + Saturday + Focus Timetable */}
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {/* Three Timetable Display Modes Switcher */}
-                  <div className="inline-flex rounded-md border border-[#DADCE0] bg-[#F1F3F4] p-0.5">
+                  <div className="inline-flex rounded-md border border-[#CBD5E1] bg-[#F1F5F9] p-0.5">
                     <button
                       onClick={() => setDisplayMode('compact')}
-                      title="Compact Grid (Default) — Fits maximum classes on one laptop screen"
-                      className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-bold transition-colors cursor-pointer ${
+                      title="Compact Week (Default): Entire Mon–Fri timetable fits on one screen with Course, Faculty, and Location"
+                      className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10.5px] font-bold transition-colors cursor-pointer ${
                         displayMode === 'compact'
                           ? 'bg-white text-[#1A73E8] shadow-2xs'
-                          : 'text-[#5F6368] hover:text-[#202124]'
+                          : 'text-[#475569] hover:text-[#0F172A]'
                       }`}
                     >
                       <LayoutGrid className="h-3 w-3" />
-                      <span>Compact Grid</span>
+                      <span>Compact Week</span>
                     </button>
                     <button
                       onClick={() => setDisplayMode('detailed')}
-                      title="Detailed Grid — Expanded cards with multi-line titles & faculty"
-                      className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-bold transition-colors cursor-pointer ${
+                      title="Detailed View: Larger class cards showing course codes, full titles, faculty names, venues, slots, and types"
+                      className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10.5px] font-bold transition-colors cursor-pointer ${
                         displayMode === 'detailed'
                           ? 'bg-white text-[#1A73E8] shadow-2xs'
-                          : 'text-[#5F6368] hover:text-[#202124]'
+                          : 'text-[#475569] hover:text-[#0F172A]'
                       }`}
                     >
                       <Columns3 className="h-3 w-3" />
-                      <span>Detailed Grid</span>
-                    </button>
-                    <button
-                      onClick={() => setDisplayMode('schedule')}
-                      title="Schedule List — Complete table of Day, Time, Course, Faculty, Venue & Slot"
-                      className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-bold transition-colors cursor-pointer ${
-                        displayMode === 'schedule'
-                          ? 'bg-white text-[#1A73E8] shadow-2xs'
-                          : 'text-[#5F6368] hover:text-[#202124]'
-                      }`}
-                    >
-                      <ListFilter className="h-3 w-3" />
-                      <span>Schedule List</span>
+                      <span>Detailed View</span>
                     </button>
                   </div>
 
                   {/* Saturday Toggle */}
-                  {displayMode !== 'schedule' && (
-                    <button
-                      onClick={() => setShowSaturday((s) => !s)}
-                      className={`rounded-md border px-2 py-0.5 text-[11px] font-bold cursor-pointer ${
-                        showSaturday
-                          ? 'border-[#1A73E8] bg-[#E8F0FE] text-[#1A73E8]'
-                          : 'border-[#DADCE0] bg-white text-[#5F6368] hover:text-[#202124]'
-                      }`}
-                    >
-                      {showSaturday ? 'Mon–Sat' : '+ Sat'}
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setShowSaturday((s) => !s)}
+                    className={`rounded-md border px-2 py-0.5 text-[10.5px] font-bold cursor-pointer ${
+                      showSaturday
+                        ? 'border-[#1A73E8] bg-[#E8F0FE] text-[#1A73E8]'
+                        : 'border-[#DADCE0] bg-white text-[#5F6368] hover:text-[#202124]'
+                    }`}
+                  >
+                    {showSaturday ? 'Mon–Sat' : '+ Sat'}
+                  </button>
 
                   {/* Quick Download PDF in Focus Mode */}
                   {focusTimetableMode && (
                     <button
                       onClick={() => handleDownloadPdf()}
-                      className="inline-flex items-center gap-1 rounded-md bg-[#1A73E8] hover:bg-[#1557B0] px-2.5 py-0.5 text-[11px] font-bold text-white cursor-pointer"
+                      className="inline-flex items-center gap-1 rounded-md bg-[#1A73E8] hover:bg-[#1557B0] px-2 py-0.5 text-[10.5px] font-bold text-white cursor-pointer"
                     >
                       <Download className="h-3 w-3" />
                       <span>PDF ({pdfPaperSize.toUpperCase()})</span>
@@ -956,9 +946,9 @@ export const DashboardPage: React.FC = () => {
                     title={
                       focusTimetableMode
                         ? 'Return to normal workspace with Course Selector'
-                        : 'Focus Timetable — Full-screen timetable mode'
+                        : 'Focus Timetable — Collapse left panel and maximize timetable'
                     }
-                    className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-0.5 text-[11px] font-bold transition-colors cursor-pointer ${
+                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10.5px] font-bold transition-colors cursor-pointer ${
                       focusTimetableMode
                         ? 'border-[#1A73E8] bg-[#1A73E8] text-white'
                         : 'border-[#DADCE0] bg-white text-[#202124] hover:bg-[#F1F3F4]'
@@ -967,7 +957,7 @@ export const DashboardPage: React.FC = () => {
                     {focusTimetableMode ? (
                       <>
                         <Minimize2 className="h-3 w-3" />
-                        <span>Exit Focus Mode</span>
+                        <span>Exit Focus</span>
                       </>
                     ) : (
                       <>
