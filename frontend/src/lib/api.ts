@@ -10,6 +10,8 @@ import {
   TimetableDraft,
 } from '../types/ffcs';
 
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+
 export interface BootstrapResponse {
   semester: string;
   campus: string;
@@ -22,7 +24,7 @@ export interface BootstrapResponse {
 }
 
 export async function fetchBootstrap(campus = 'vellore'): Promise<BootstrapResponse> {
-  const res = await fetch(`/api/bootstrap?campus=${encodeURIComponent(campus)}&include_audit_rows=true`);
+  const res = await fetch(`${API_BASE}/api/bootstrap?campus=${encodeURIComponent(campus)}&include_audit_rows=true`);
   if (!res.ok) throw new Error('Failed to load FFCS bootstrap data');
   return res.json();
 }
@@ -37,7 +39,7 @@ export async function evaluateClashes(payload: {
   campus: string;
   allow_adjacent_lab_boundary: boolean;
 }): Promise<ClashReport> {
-  const res = await fetch('/api/clashes/evaluate', {
+  const res = await fetch(`${API_BASE}/api/clashes/evaluate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -60,7 +62,7 @@ export async function fetchFacultyComparison(
     allow_adjacent_lab_boundary: boolean;
   }
 ): Promise<{ course_code: string; comparisons: FacultyComparisonItem[] }> {
-  const res = await fetch(`/api/recommendations/faculty/${encodeURIComponent(courseCode)}`, {
+  const res = await fetch(`${API_BASE}/api/recommendations/faculty/${encodeURIComponent(courseCode)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -87,7 +89,7 @@ export async function generateOptimizedTimetables(payload: {
   campus: string;
   allow_adjacent_lab_boundary: boolean;
 }): Promise<OptimizerResponse> {
-  const res = await fetch('/api/optimizer/generate', {
+  const res = await fetch(`${API_BASE}/api/optimizer/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -108,7 +110,7 @@ export async function queryPlanningAssistant(payload: {
   recommended_section_ids: number[];
   data_basis: string;
 }> {
-  const res = await fetch('/api/assistant/query', {
+  const res = await fetch(`${API_BASE}/api/assistant/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -126,7 +128,7 @@ export async function previewWorkbookImport(
   if (customMappings) {
     fd.append('custom_mappings_json', JSON.stringify(customMappings));
   }
-  const res = await fetch('/api/import/preview', { method: 'POST', body: fd });
+  const res = await fetch(`${API_BASE}/api/import/preview`, { method: 'POST', body: fd });
   if (!res.ok) throw new Error('Failed to preview workbook');
   return res.json();
 }
@@ -142,13 +144,13 @@ export async function commitWorkbookImport(
     fd.append('custom_mappings_json', JSON.stringify(customMappings));
   }
   fd.append('clear_existing', String(clearExisting));
-  const res = await fetch('/api/import/commit', { method: 'POST', body: fd });
+  const res = await fetch(`${API_BASE}/api/import/commit`, { method: 'POST', body: fd });
   if (!res.ok) throw new Error('Failed to commit workbook import');
   return res.json();
 }
 
 export async function resetDefaultWorkbook(): Promise<any> {
-  const res = await fetch('/api/import/reset-default', { method: 'POST' });
+  const res = await fetch(`${API_BASE}/api/import/reset-default`, { method: 'POST' });
   if (!res.ok) throw new Error('Failed to reset default workbook');
   return res.json();
 }
@@ -163,7 +165,7 @@ export async function addCustomSlotMapping(payload: {
   slot_category: string;
   session: string;
 }): Promise<any> {
-  const res = await fetch('/api/slot-mappings', {
+  const res = await fetch(`${API_BASE}/api/slot-mappings`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -173,7 +175,7 @@ export async function addCustomSlotMapping(payload: {
 }
 
 export async function resetSlotMappings(): Promise<any> {
-  const res = await fetch('/api/slot-mappings/reset', { method: 'POST' });
+  const res = await fetch(`${API_BASE}/api/slot-mappings/reset`, { method: 'POST' });
   if (!res.ok) throw new Error('Failed to reset slot mappings');
   return res.json();
 }
@@ -188,7 +190,7 @@ export async function updateSectionOffering(
     is_active?: boolean;
   }
 ): Promise<any> {
-  const res = await fetch(`/api/sections/${sectionId}`, {
+  const res = await fetch(`${API_BASE}/api/sections/${sectionId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
@@ -216,7 +218,7 @@ export async function saveTimetableDraft(payload: {
   avoided_slots: string[];
   preferences: Record<string, any>;
 }): Promise<any> {
-  const res = await fetch('/api/drafts', {
+  const res = await fetch(`${API_BASE}/api/drafts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -226,13 +228,13 @@ export async function saveTimetableDraft(payload: {
 }
 
 export async function deleteTimetableDraft(draftId: number): Promise<any> {
-  const res = await fetch(`/api/drafts/${draftId}`, { method: 'DELETE' });
+  const res = await fetch(`${API_BASE}/api/drafts/${draftId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete draft');
   return res.json();
 }
 
 export async function fetchSharedDraft(draftId: number): Promise<TimetableDraft> {
-  const res = await fetch(`/api/drafts/${draftId}`);
+  const res = await fetch(`${API_BASE}/api/drafts/${draftId}`);
   if (!res.ok) throw new Error('Shared timetable draft not found');
   return res.json();
 }
@@ -265,7 +267,7 @@ export async function compareTwoTimetables(payload: {
     student_b_faculty: string;
   }>;
 }> {
-  const res = await fetch('/api/timetables/compare', {
+  const res = await fetch(`${API_BASE}/api/timetables/compare`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -275,7 +277,7 @@ export async function compareTwoTimetables(payload: {
 }
 
 export async function syncNo8amReviews(campus = 'vellore'): Promise<any> {
-  const res = await fetch(`/api/no8am/sync?campus=${encodeURIComponent(campus)}`, { method: 'POST' });
+  const res = await fetch(`${API_BASE}/api/no8am/sync?campus=${encodeURIComponent(campus)}`, { method: 'POST' });
   if (!res.ok) throw new Error('Failed to sync with no8am.site');
   return res.json();
 }
