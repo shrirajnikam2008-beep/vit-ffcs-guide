@@ -27,3 +27,18 @@ npm run dev -- --host 127.0.0.1 --port 5173
 ```powershell
 uv run python -m pytest -v
 ```
+
+## Cloud Deployment (Render.com / Railway)
+
+This repository includes a multi-stage [`Dockerfile`](Dockerfile), [`render.yaml`](render.yaml), and [`railway.json`](railway.json) that build the React Vite frontend and serve both the static SPA and the FastAPI backend + preloaded VIT Winter 2026–27 database from a single web service.
+
+### Deploy on Render (Free)
+1. Push this repository to GitHub.
+2. Go to [dashboard.render.com/blueprints](https://dashboard.render.com/blueprints) → **New Blueprint Instance** (or **New Web Service**).
+3. Connect your GitHub repository (`vit-ffcs-guide`).
+4. Render automatically detects [`render.yaml`](render.yaml) and [`Dockerfile`](Dockerfile) and deploys your live site.
+
+### Deploy on Railway
+1. Go to [railway.app/new](https://railway.app/new) → **Deploy from GitHub repo**.
+2. Select your `vit-ffcs-guide` repository.
+3. Railway automatically detects [`railway.json`](railway.json) and [`Dockerfile`](Dockerfile) and assigns a public domain.
