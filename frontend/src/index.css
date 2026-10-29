@@ -85,11 +85,18 @@ html.dark ::-webkit-scrollbar-thumb {
   }
 }
 
-/* Print-friendly styles */
+/* Print-friendly styles (Landscape A3 default if browser Ctrl+P is used directly) */
+@page {
+  size: A3 landscape;
+  margin: 10mm;
+}
+
 @media print {
   body {
     background: #FFFFFF !important;
     color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
   .no-print {
     display: none !important;
@@ -100,5 +107,6 @@ html.dark ::-webkit-scrollbar-thumb {
   .print-surface {
     border: 1px solid #DADCE0 !important;
     box-shadow: none !important;
+    overflow: visible !important;
   }
 }

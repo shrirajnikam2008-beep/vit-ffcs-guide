@@ -15,6 +15,12 @@ import {
   FolderOpen,
   Clock,
   Database,
+  Maximize2,
+  Minimize2,
+  FileText,
+  LayoutGrid,
+  ListFilter,
+  Copy,
 } from 'lucide-react';
 import {
   ClashReport,
@@ -30,24 +36,54 @@ import {
   fetchBootstrap,
   syncNo8amReviews,
 } from '../lib/api';
+import {
+  exportTimetablePdf,
+  PdfContentMode,
+  PdfPaperSize,
+} from '../lib/pdfExporter';
 import { CourseTeacherSlotSelector } from '../components/CourseTeacherSlotSelector';
 import { TimetableGrid } from '../components/TimetableGrid';
 
-const LOCAL_STORAGE_KEY = 'vit_ffcs_maker_saved_plan_v1';
+const LOCAL_STORAGE_KEY = 'vit_ffcs_maker_saved_plans_v2';
+
+type PlanSlotKey = 'primary' | 'backup1' | 'backup2';
+
+const PLAN_LABELS: Record<PlanSlotKey, string> = {
+  primary: 'Primary Timetable',
+  backup1: 'Backup 1',
+  backup2: 'Backup 2',
+};
 
 export const DashboardPage: React.FC = () => {
   // Header Academic Context
   const [campus, setCampus] = useState('vellore');
   const [semester, setSemester] = useState('Winter Semester 2026–27');
   const [showSaturday, setShowSaturday] = useState(false);
-  const [fitToPage, setFitToPage] = useState(true);
+
+  // Readability & View Controls
+  // Default to Detailed View (fitToPage = false) so full faculty names, course titles, and venues are visible immediately
+  const [fitToPage, setFitToPage] = useState(false);
+  const [isTimetableExpanded, setIsTimetableExpanded] = useState(false);
+  const [gridViewMode, setGridViewMode] = useState<'week' | 'slotlist'>('week');
+
+  // PDF Export Configuration State (Default: Landscape A3 + Both Pages)
+  const [pdfPaperSize, setPdfPaperSize] = useState<PdfPaperSize>('a3');
+  const [pdfContentMode, setPdfContentMode] = useState<PdfContentMode>('both');
+
+  // Primary & Backup Timetable Plans State
+  const [activePlanKey, setActivePlanKey] = useState<PlanSlotKey>('primary');
+  const [planSectionsMap, setPlanSectionsMap] = useState<Record<PlanSlotKey, number[]>>({
+    primary: [],
+    backup1: [],
+    backup2: [],
+  });
 
   // Core Data State
   const [courses, setCourses] = useState<Course[]>([]);
   const [allSections, setAllSections] = useState<CourseSection[]>([]);
   const [slotMap, setSlotMap] = useState<Record<string, SlotOccurrence[]>>({});
   const [periodHeaders, setPeriodHeaders] = useState<PeriodHeader[]>([]);
-  const [importReport, setImportReport] = useState<ImportReport | null>(null);
+  const [, setImportReport] = useState<ImportReport | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Data Source Transparency Status
@@ -57,99 +93,145 @@ export const DashboardPage: React.FC = () => {
   const [lastUpdatedLabel, setLastUpdatedLabel] = useState<string>('2026-10-29');
   const [syncingNo8am, setSyncingNo8am] = useState(false);
 
-  // Active Course in Left Selector & Selected Section IDs in Live Timetable
-  const [activeCourseCode, setActiveCourseCode] = useState<string>('BACSE104');
-  const [selectedSectionIds, setSelectedSectionIds] = useState<number[]>([]);
+  // Active Course in Left Selector & Locked Section IDs
+  const [activeCourseCode, setActiveCourseCode] = useState<string>('BAITE102');
   const [lockedSectionIds, setLockedSectionIds] = useState<number[]>([]);
   const [clashReport, setClashReport] = useState<ClashReport | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const selectedSectionIds = planSectionsMap[activePlanKey] ?? [];
+
+  const setSelectedSectionIdsForActivePlan = useCallback(
+    (updater: number[] | ((prev: number[]) => number[])) => {
+      setPlanSectionsMap((prevMap) => {
+        const current = prevMap[activePlanKey] ?? [];
+        const next = typeof updater === 'function' ? updater(current) : updater;
+        return {
+          ...prevMap,
+          [activePlanKey]: next,
+        };
+      });
+    },
+    [activePlanKey]
+  );
+
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage((cur) => (cur === msg ? null : cur));
-    }, 3000);
+    }, 3200);
   }, []);
 
   // Load Bootstrap Data
-  const loadCatalogData = useCallback(
-    async (campusCode: string, isInitial = false) => {
-      setLoading(true);
-      try {
-        const data = await fetchBootstrap(campusCode);
-        setCourses(data.courses);
-        setAllSections(data.all_sections);
-        setSlotMap(data.slot_map);
-        setPeriodHeaders(data.period_headers);
-        setImportReport(data.import_report);
-        if (data.import_report?.imported_at) {
-          setLastUpdatedLabel(data.import_report.imported_at.slice(0, 10));
-        }
-
-        if (isInitial) {
-          // Restore from localStorage if available, otherwise load a clean starter timetable
-          const rawSaved = localStorage.getItem(LOCAL_STORAGE_KEY);
-          if (rawSaved) {
-            try {
-              const parsed = JSON.parse(rawSaved);
-              if (Array.isArray(parsed.selectedSectionIds) && parsed.selectedSectionIds.length > 0) {
-                setSelectedSectionIds(parsed.selectedSectionIds);
-                return;
-              }
-            } catch {
-              // ignore corrupt localStorage
-            }
-          }
-
-          const findSec = (code: string, typeCode: string, slotPrefix: string) =>
-            data.courses
-              .find((c) => c.course_code === code)
-              ?.sections.find(
-                (s) =>
-                  s.course_type_code === typeCode &&
-                  s.slot_combination.startsWith(slotPrefix)
-              );
-
-          const starter = [
-            findSec('BACSE104', 'ETH', 'A1'),
-            findSec('BACSE104', 'ELA', 'L31+L32'),
-            findSec('BAITE101', 'ETH', 'F1+TF1'),
-            findSec('BAITE101', 'ELA', 'L37+L38'),
-            findSec('BAITE102', 'ETH', 'D1+TD1'),
-            findSec('BAITE102', 'ELA', 'L55+L56'),
-            findSec('BAMAT207', 'ETH', 'B1+TB1+TBB1'),
-            findSec('BAMAT207', 'ELA', 'L47+L48'),
-          ]
-            .filter((s): s is CourseSection => Boolean(s))
-            .map((s) => s.id);
-
-          setSelectedSectionIds(starter);
-        }
-      } catch (err) {
-        console.error('Failed to load timetable data:', err);
-      } finally {
-        setLoading(false);
+  const loadCatalogData = useCallback(async (campusCode: string, isInitial = false) => {
+    setLoading(true);
+    try {
+      const data = await fetchBootstrap(campusCode);
+      setCourses(data.courses);
+      setAllSections(data.all_sections);
+      setSlotMap(data.slot_map);
+      setPeriodHeaders(data.period_headers);
+      setImportReport(data.import_report);
+      if (data.import_report?.imported_at) {
+        setLastUpdatedLabel(data.import_report.imported_at.slice(0, 10));
       }
-    },
-    []
-  );
+
+      if (isInitial) {
+        const rawSaved = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (rawSaved) {
+          try {
+            const parsed = JSON.parse(rawSaved);
+            if (parsed.planSectionsMap && Array.isArray(parsed.planSectionsMap.primary) && parsed.planSectionsMap.primary.length > 0) {
+              setPlanSectionsMap(parsed.planSectionsMap);
+              if (parsed.activePlanKey) setActivePlanKey(parsed.activePlanKey);
+              return;
+            }
+          } catch {
+            // ignore corrupt localStorage
+          }
+        }
+
+        // Build a comprehensive 6-course (12-section, 24-credit) clash-free starter timetable
+        // testing long course titles, long faculty names, and PRP329, PRP408A, SJT122, SJTG18 venues
+        const findSec = (code: string, typeCode: string, slotPrefix: string, venueFilter?: string) =>
+          data.courses
+            .find((c) => c.course_code === code)
+            ?.sections.find(
+              (s) =>
+                s.course_type_code === typeCode &&
+                s.slot_combination.startsWith(slotPrefix) &&
+                (!venueFilter || s.venue === venueFilter)
+            );
+
+        const starterPrimary = [
+          // 1. BACSE104 — Structured and Object-Oriented Programming (SJT102 + SJT122)
+          findSec('BACSE104', 'ETH', 'A1', 'SJT102'),
+          findSec('BACSE104', 'ELA', 'L37+L38+L43+L44', 'SJT122'),
+          // 2. BAITE101 — Digital Logic Design and Computer Organization (MANGAYARKARASI R / KONGUVELE E)
+          findSec('BAITE101', 'ETH', 'B1+TB1', 'SJT823'),
+          findSec('BAITE101', 'ELA', 'L55+L56', 'SJT212'),
+          // 3. BACHY105 — Applied Chemistry (PRP329 + PRP408A)
+          findSec('BACHY105', 'ETH', 'C1+TC1', 'PRP329'),
+          findSec('BACHY105', 'ELA', 'L49+L50', 'PRP408A'),
+          // 4. BAMAT207 — Probability and Statistics (VENKATESWARLU B in PRP329)
+          findSec('BAMAT207', 'ETH', 'D1+TD1', 'PRP329'),
+          findSec('BAMAT207', 'ELA', 'L51+L52', 'PRP450'),
+          // 5. BAITE103 — Principles of Software Engineering (KIRUBA THANGAM R)
+          findSec('BAITE103', 'ETH', 'E1+TE1', 'SJTG14'),
+          findSec('BAITE103', 'ELA', 'L33+L34', 'SJTG17'),
+          // 6. BAITE102 — Data Structures and Algorithms (AGILANDEESWARL I + PRIYA V in SJTG18 · L39+L40)
+          findSec('BAITE102', 'ETH', 'F1+TF1', 'SJT823'),
+          findSec('BAITE102', 'ELA', 'L39+L40', 'SJTG18'),
+        ]
+          .filter((s): s is CourseSection => Boolean(s))
+          .map((s) => s.id);
+
+        // Also seed Backup 1 with an afternoon-theory alternative plan
+        const starterBackup1 = [
+          findSec('BACSE104', 'ETH', 'A2'),
+          findSec('BACSE104', 'ELA', 'L9+L10+L23+L24', 'SJT122'),
+          findSec('BAITE102', 'ETH', 'F2+TF2'),
+          findSec('BAITE102', 'ELA', 'L19+L20'),
+          findSec('BAMAT207', 'ETH', 'D2+TD2', 'PRP329'),
+          findSec('BAMAT207', 'ELA', 'L11+L12'),
+        ]
+          .filter((s): s is CourseSection => Boolean(s))
+          .map((s) => s.id);
+
+        setPlanSectionsMap({
+          primary: starterPrimary,
+          backup1: starterBackup1,
+          backup2: [],
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load timetable data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    loadCatalogData(campus, selectedSectionIds.length === 0);
+    loadCatalogData(campus, planSectionsMap.primary.length === 0);
   }, [campus]);
 
   // Automatically persist selection changes to localStorage & evaluate clashes immediately
   useEffect(() => {
     let cancelled = false;
-    if (selectedSectionIds.length > 0) {
+    if (
+      planSectionsMap.primary.length > 0 ||
+      planSectionsMap.backup1.length > 0 ||
+      planSectionsMap.backup2.length > 0
+    ) {
       localStorage.setItem(
         LOCAL_STORAGE_KEY,
         JSON.stringify({
           campus,
           semester,
-          selectedSectionIds,
+          activePlanKey,
+          planSectionsMap,
           savedAt: new Date().toISOString(),
         })
       );
@@ -160,7 +242,7 @@ export const DashboardPage: React.FC = () => {
       locked_section_ids: lockedSectionIds,
       mandatory_course_codes: [],
       min_credits: 16,
-      target_credits: 21,
+      target_credits: 24,
       max_credits: 27,
       campus,
       allow_adjacent_lab_boundary: true,
@@ -173,7 +255,7 @@ export const DashboardPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedSectionIds, lockedSectionIds, campus, semester]);
+  }, [selectedSectionIds, planSectionsMap, activePlanKey, lockedSectionIds, campus, semester]);
 
   // Map section ID -> CourseSection
   const sectionById = useMemo(() => {
@@ -194,12 +276,11 @@ export const DashboardPage: React.FC = () => {
   // Select or switch a teacher/slot for a course component (updates existing card in place, never duplicates!)
   const handleSelectOrSwitchSection = useCallback(
     (section: CourseSection) => {
-      setSelectedSectionIds((prev) => {
+      setSelectedSectionIdsForActivePlan((prev) => {
         if (prev.includes(section.id)) {
           showToast(`Removed ${section.course_code} (${section.slot_combination})`);
           return prev.filter((id) => id !== section.id);
         }
-        // Replace any existing section of the same course & same component type (ETH / ELA / OC)
         const withoutSameComponent = prev.filter((id) => {
           const existing = sectionById.get(id);
           if (!existing) return false;
@@ -212,20 +293,20 @@ export const DashboardPage: React.FC = () => {
           return true;
         });
         showToast(
-          `Selected ${section.course_code} [${section.course_type_code}] — ${section.faculty_name} (${section.slot_combination})`
+          `Selected ${section.course_code} [${section.course_type_code}] — ${section.faculty_name} (${section.venue} · ${section.slot_combination})`
         );
         return [...withoutSameComponent, section.id];
       });
     },
-    [sectionById, showToast]
+    [sectionById, setSelectedSectionIdsForActivePlan, showToast]
   );
 
-  // Switch a specific old section ID to a new section ID (used by 1-click Clash Resolution & Timetable Popup)
+  // Switch a specific old section ID to a new section ID
   const handleSwitchSectionById = useCallback(
     (oldSectionId: number | null | undefined, newSectionId: number) => {
       const newSec = sectionById.get(newSectionId);
       if (!newSec) return;
-      setSelectedSectionIds((prev) => {
+      setSelectedSectionIdsForActivePlan((prev) => {
         const filtered = prev.filter((id) => {
           if (oldSectionId && id === oldSectionId) return false;
           const existing = sectionById.get(id);
@@ -241,21 +322,21 @@ export const DashboardPage: React.FC = () => {
         return Array.from(new Set([...filtered, newSectionId]));
       });
       showToast(
-        `Resolved: Switched ${newSec.course_code} to ${newSec.faculty_name} (${newSec.slot_combination})`
+        `Resolved: Switched ${newSec.course_code} to ${newSec.faculty_name} (${newSec.venue} · ${newSec.slot_combination})`
       );
     },
-    [sectionById, showToast]
+    [sectionById, setSelectedSectionIdsForActivePlan, showToast]
   );
 
   const handleRemoveSection = useCallback(
     (sectionId: number) => {
       const sec = sectionById.get(sectionId);
-      setSelectedSectionIds((prev) => prev.filter((id) => id !== sectionId));
+      setSelectedSectionIdsForActivePlan((prev) => prev.filter((id) => id !== sectionId));
       if (sec) {
         showToast(`Removed ${sec.course_code} (${sec.slot_combination})`);
       }
     },
-    [sectionById, showToast]
+    [sectionById, setSelectedSectionIdsForActivePlan, showToast]
   );
 
   const handleToggleLock = useCallback((sectionId: number) => {
@@ -265,10 +346,26 @@ export const DashboardPage: React.FC = () => {
   }, []);
 
   const handleClearTimetable = () => {
-    setSelectedSectionIds([]);
+    setSelectedSectionIdsForActivePlan([]);
     setLockedSectionIds([]);
-    localStorage.removeItem(LOCAL_STORAGE_KEY);
-    showToast('Cleared timetable');
+    showToast(`Cleared ${PLAN_LABELS[activePlanKey]}`);
+  };
+
+  const handleClonePrimaryToActiveBackup = () => {
+    if (activePlanKey === 'primary') {
+      setPlanSectionsMap((prev) => ({
+        ...prev,
+        backup1: [...prev.primary],
+      }));
+      setActivePlanKey('backup1');
+      showToast('Copied Primary Timetable into Backup 1');
+    } else {
+      setPlanSectionsMap((prev) => ({
+        ...prev,
+        [activePlanKey]: [...prev.primary],
+      }));
+      showToast(`Copied Primary Timetable into ${PLAN_LABELS[activePlanKey]}`);
+    }
   };
 
   const handleSaveToLocal = () => {
@@ -277,11 +374,12 @@ export const DashboardPage: React.FC = () => {
       JSON.stringify({
         campus,
         semester,
-        selectedSectionIds,
+        activePlanKey,
+        planSectionsMap,
         savedAt: new Date().toISOString(),
       })
     );
-    showToast('Saved current timetable to browser storage');
+    showToast('Saved all timetable plans to browser storage');
   };
 
   const handleRestoreFromLocal = () => {
@@ -292,9 +390,9 @@ export const DashboardPage: React.FC = () => {
     }
     try {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed.selectedSectionIds)) {
-        setSelectedSectionIds(parsed.selectedSectionIds);
-        showToast('Restored saved timetable from browser storage');
+      if (parsed.planSectionsMap) {
+        setPlanSectionsMap(parsed.planSectionsMap);
+        showToast('Restored saved timetable plans from browser storage');
       }
     } catch {
       showToast('Could not read saved plan');
@@ -336,6 +434,38 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
+  // Dedicated Direct PDF Export (Landscape A3 or A4, Visual / Detailed / Both)
+  const handleDownloadPdf = (
+    overrideContentMode?: PdfContentMode,
+    action: 'download' | 'print' = 'download'
+  ) => {
+    const mode = overrideContentMode ?? pdfContentMode;
+    exportTimetablePdf({
+      paperSize: pdfPaperSize,
+      contentMode: mode,
+      planName: PLAN_LABELS[activePlanKey],
+      semester,
+      campus,
+      showSaturday,
+      courses,
+      selectedSections,
+      periodHeaders,
+      clashReport,
+      action,
+    });
+    showToast(
+      action === 'print'
+        ? `Opened ${PLAN_LABELS[activePlanKey]} (${pdfPaperSize.toUpperCase()} Landscape) for printing`
+        : `Downloaded ${PLAN_LABELS[activePlanKey]} PDF (Landscape ${pdfPaperSize.toUpperCase()} • ${
+            mode === 'both'
+              ? 'Timetable + Class List'
+              : mode === 'visual'
+              ? 'Visual Grid'
+              : 'Detailed Class List'
+          })`
+    );
+  };
+
   // Export Excel
   const handleExportExcel = () => {
     const idsParam = selectedSectionIds.join(',');
@@ -357,13 +487,18 @@ export const DashboardPage: React.FC = () => {
     [clashReport]
   );
 
+  const uniqueCourseCount = useMemo(
+    () => new Set(selectedSections.map((s) => s.course_code)).size,
+    [selectedSections]
+  );
+
   return (
     <div className="min-h-screen flex flex-col bg-[#F8F9FC] text-[#202124]">
-      {/* 1. COMPACT TOP HEADER */}
+      {/* 1. COMPACT TOP HEADER WITH DEDICATED LANDSCAPE A3/A4 PDF EXPORT CONTROLS */}
       <header className="no-print sticky top-0 z-30 border-b border-[#DADCE0] bg-white px-4 lg:px-6 py-2.5 shadow-2xs">
-        <div className="mx-auto max-w-[1680px] flex flex-wrap items-center justify-between gap-3">
+        <div className="mx-auto max-w-[1760px] flex flex-wrap items-center justify-between gap-3">
           {/* Left: App Name, Campus Selector, Semester, Data Source Status */}
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <div className="flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1A73E8] text-white">
                 <Calendar className="h-4 w-4" />
@@ -407,7 +542,7 @@ export const DashboardPage: React.FC = () => {
             </div>
 
             {/* Data Source Status Badge + Sync / Upload Fallback */}
-            <div className="hidden xl:flex items-center gap-1.5 rounded-lg border border-[#DADCE0] bg-[#F8F9FC] px-2.5 py-1 text-[11px] text-[#5F6368]">
+            <div className="hidden 2xl:flex items-center gap-1.5 rounded-lg border border-[#DADCE0] bg-[#F8F9FC] px-2.5 py-1 text-[11px] text-[#5F6368]">
               <Database className="h-3.5 w-3.5 text-[#1A73E8]" />
               <span>
                 Data: <strong className="text-[#202124]">{dataSourceStatus}</strong> ({lastUpdatedLabel})
@@ -439,8 +574,77 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Right: Essential Controls Only (Save/Restore Local, Export PDF/Excel, Clear/Reset) */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Right: Dedicated PDF Export Controls + Save/Restore + Clear */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* PDF Format Selector: Landscape A3 (Default) / Landscape A4 */}
+            <div className="flex items-center rounded-lg border border-[#DADCE0] bg-[#F8F9FC] px-2 py-1 text-[11.5px] font-medium">
+              <span className="text-[#5F6368] mr-1">PDF Size:</span>
+              <select
+                aria-label="Select PDF Paper Format"
+                value={pdfPaperSize}
+                onChange={(e) => setPdfPaperSize(e.target.value as PdfPaperSize)}
+                className="bg-transparent font-bold text-[#202124] focus:outline-none cursor-pointer"
+              >
+                <option value="a3">Landscape A3 (Default)</option>
+                <option value="a4">Landscape A4 (Compact)</option>
+              </select>
+            </div>
+
+            {/* PDF Content Mode Selector: Both Pages / Visual Timetable / Detailed Table */}
+            <div className="flex items-center rounded-lg border border-[#DADCE0] bg-[#F8F9FC] px-2 py-1 text-[11.5px] font-medium">
+              <span className="text-[#5F6368] mr-1">Pages:</span>
+              <select
+                aria-label="Select PDF Pages"
+                value={pdfContentMode}
+                onChange={(e) => setPdfContentMode(e.target.value as PdfContentMode)}
+                className="bg-transparent font-bold text-[#202124] focus:outline-none cursor-pointer"
+              >
+                <option value="both">Both Pages (Grid + Class List)</option>
+                <option value="visual">Visual Timetable Only</option>
+                <option value="detailed">Detailed Class List Only</option>
+              </select>
+            </div>
+
+            {/* Direct Download PDF Button */}
+            <button
+              onClick={() => handleDownloadPdf()}
+              title="Directly generate and download formatted Landscape PDF"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#1A73E8] hover:bg-[#1557B0] px-3 py-1.5 text-[12px] font-bold text-white shadow-2xs cursor-pointer"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Download PDF</span>
+            </button>
+
+            {/* Export Detailed Class List PDF Button */}
+            <button
+              onClick={() => handleDownloadPdf('detailed', 'download')}
+              title="Download Detailed Registered Class List PDF"
+              className="inline-flex items-center gap-1 rounded-lg border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2.5 py-1.5 text-[12px] font-semibold text-[#202124] cursor-pointer"
+            >
+              <FileText className="h-3.5 w-3.5 text-[#1A73E8]" />
+              <span>Detailed List PDF</span>
+            </button>
+
+            {/* Print Timetable (Formatted Landscape PDF Print) */}
+            <button
+              onClick={() => handleDownloadPdf(pdfContentMode, 'print')}
+              title="Print formatted Landscape Timetable"
+              className="inline-flex items-center gap-1 rounded-lg border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2.5 py-1.5 text-[12px] font-semibold text-[#202124] cursor-pointer"
+            >
+              <Printer className="h-3.5 w-3.5 text-[#5F6368]" />
+              <span>Print</span>
+            </button>
+
+            {/* Excel Export */}
+            <button
+              onClick={handleExportExcel}
+              title="Download timetable as Excel (.xlsx)"
+              className="inline-flex items-center gap-1 rounded-lg border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2.5 py-1.5 text-[12px] font-medium text-[#202124] cursor-pointer"
+            >
+              <Download className="h-3.5 w-3.5 text-[#188038]" />
+              <span>Excel</span>
+            </button>
+
             <button
               onClick={handleSaveToLocal}
               title="Save current timetable in browser storage"
@@ -460,37 +664,19 @@ export const DashboardPage: React.FC = () => {
             </button>
 
             <button
-              onClick={handleExportExcel}
-              title="Download timetable as Excel (.xlsx)"
-              className="inline-flex items-center gap-1 rounded-lg border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2.5 py-1.5 text-[12px] font-medium text-[#202124] cursor-pointer"
-            >
-              <Download className="h-3.5 w-3.5 text-[#188038]" />
-              <span>Excel</span>
-            </button>
-
-            <button
-              onClick={() => window.print()}
-              title="Export timetable as PDF or Print"
-              className="inline-flex items-center gap-1 rounded-lg border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2.5 py-1.5 text-[12px] font-medium text-[#202124] cursor-pointer"
-            >
-              <Printer className="h-3.5 w-3.5 text-[#1A73E8]" />
-              <span>Export PDF</span>
-            </button>
-
-            <button
               onClick={handleClearTimetable}
-              title="Clear all classes from timetable"
-              className="inline-flex items-center gap-1 rounded-lg border border-[#D93025]/40 bg-[#FCE8E6]/60 hover:bg-[#FCE8E6] px-3 py-1.5 text-[12px] font-semibold text-[#D93025] cursor-pointer"
+              title="Clear all classes from active timetable"
+              className="inline-flex items-center gap-1 rounded-lg border border-[#D93025]/40 bg-[#FCE8E6]/60 hover:bg-[#FCE8E6] px-2.5 py-1.5 text-[12px] font-semibold text-[#D93025] cursor-pointer"
             >
               <RotateCcw className="h-3.5 w-3.5" />
-              <span>Clear / Reset</span>
+              <span>Clear</span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* 2. MAIN TWO-COLUMN SIDE-BY-SIDE WORKSPACE (Left ~38% Selectors | Right ~62% Live Timetable) */}
-      <main className="mx-auto w-full max-w-[1680px] flex-1 px-4 lg:px-6 py-4">
+      {/* 2. MAIN WORKSPACE (Left Selector + Right Live Timetable, or Full-Width Expanded Timetable) */}
+      <main className="mx-auto w-full max-w-[1760px] flex-1 px-4 lg:px-6 py-4">
         {loading ? (
           <div className="rounded-2xl border border-[#DADCE0] bg-white p-16 text-center space-y-3">
             <div className="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-[#1A73E8] border-t-transparent" />
@@ -500,24 +686,32 @@ export const DashboardPage: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-            {/* LEFT PANEL (~38% width -> 5 of 12 cols): Course, Teacher & Slot Selector + Selected Courses List */}
-            <div className="no-print lg:col-span-5 xl:col-span-4">
-              <CourseTeacherSlotSelector
-                courses={courses}
-                activeCourseCode={activeCourseCode}
-                onSelectCourseCode={(code) => setActiveCourseCode(code)}
-                selectedSections={selectedSections}
-                selectedSectionIds={selectedSectionIds}
-                clashReport={clashReport}
-                campus={campus}
-                lastUpdatedLabel={lastUpdatedLabel}
-                onSelectOrSwitchSection={handleSelectOrSwitchSection}
-                onRemoveSection={handleRemoveSection}
-              />
-            </div>
+            {/* LEFT PANEL: Course, Teacher & Slot Selector (Hidden when Timetable is in Full-Width Expanded Mode) */}
+            {!isTimetableExpanded && (
+              <div className="no-print lg:col-span-4 xl:col-span-4">
+                <CourseTeacherSlotSelector
+                  courses={courses}
+                  activeCourseCode={activeCourseCode}
+                  onSelectCourseCode={(code) => setActiveCourseCode(code)}
+                  selectedSections={selectedSections}
+                  selectedSectionIds={selectedSectionIds}
+                  clashReport={clashReport}
+                  campus={campus}
+                  lastUpdatedLabel={lastUpdatedLabel}
+                  onSelectOrSwitchSection={handleSelectOrSwitchSection}
+                  onRemoveSection={handleRemoveSection}
+                />
+              </div>
+            )}
 
-            {/* RIGHT PANEL (~62% width -> 7 of 12 cols): Live Weekly Timetable Grid + Automatic Clash Detection */}
-            <div className="lg:col-span-7 xl:col-span-8 space-y-4 lg:sticky lg:top-16">
+            {/* RIGHT PANEL: Live Weekly Timetable Grid + Readability & Plan Controls */}
+            <div
+              className={`${
+                isTimetableExpanded
+                  ? 'lg:col-span-12'
+                  : 'lg:col-span-8 xl:col-span-8'
+              } space-y-3.5`}
+            >
               {/* LIVE CLASH DETECTION & ALTERNATIVE SUGGESTIONS BANNER */}
               <div className="no-print">
                 {activeClashes.length === 0 ? (
@@ -525,25 +719,38 @@ export const DashboardPage: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="h-4 w-4 shrink-0 text-[#188038]" />
                       <span>
-                        <strong>No clashes detected</strong> — {selectedSections.length} selected section(s) ({clashReport?.total_credits ?? 0} Credits) verified against official VIT time slots.
+                        <strong>No clashes detected</strong> in{' '}
+                        <strong>{PLAN_LABELS[activePlanKey]}</strong> — {uniqueCourseCount} course(s),{' '}
+                        {selectedSections.length} section(s) ({clashReport?.total_credits ?? 0} Credits) verified against official VIT time slots.
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 text-[12px]">
+
+                    {/* Primary / Backup Timetable Switcher Tabs */}
+                    <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
+                      {(['primary', 'backup1', 'backup2'] as PlanSlotKey[]).map((key) => {
+                        const isActive = activePlanKey === key;
+                        const count = planSectionsMap[key]?.length ?? 0;
+                        return (
+                          <button
+                            key={key}
+                            onClick={() => setActivePlanKey(key)}
+                            className={`rounded-lg border px-2.5 py-1 font-bold transition-colors cursor-pointer ${
+                              isActive
+                                ? 'border-[#1A73E8] bg-[#1A73E8] text-white'
+                                : 'border-[#DADCE0] bg-white text-[#5F6368] hover:text-[#202124]'
+                            }`}
+                          >
+                            {PLAN_LABELS[key]} ({count})
+                          </button>
+                        );
+                      })}
                       <button
-                        onClick={() => setShowSaturday((s) => !s)}
-                        className={`rounded-lg border px-2.5 py-0.5 font-semibold cursor-pointer ${
-                          showSaturday
-                            ? 'border-[#1A73E8] bg-[#E8F0FE] text-[#1A73E8]'
-                            : 'border-[#DADCE0] bg-white text-[#5F6368]'
-                        }`}
+                        onClick={handleClonePrimaryToActiveBackup}
+                        title="Copy Primary Timetable into Backup plan"
+                        className="inline-flex items-center gap-1 rounded-lg border border-[#DADCE0] bg-white hover:bg-[#F1F3F4] px-2 py-1 text-[11px] font-semibold text-[#202124] cursor-pointer"
                       >
-                        {showSaturday ? 'Mon–Sat' : '+ Saturday'}
-                      </button>
-                      <button
-                        onClick={() => setFitToPage((f) => !f)}
-                        className="rounded-lg border border-[#DADCE0] bg-white px-2.5 py-0.5 font-semibold text-[#5F6368] hover:text-[#202124] cursor-pointer"
-                      >
-                        {fitToPage ? 'Compact Grid' : 'Expanded Grid'}
+                        <Copy className="h-3 w-3 text-[#1A73E8]" />
+                        <span>Copy Primary → Backup</span>
                       </button>
                     </div>
                   </div>
@@ -600,7 +807,6 @@ export const DashboardPage: React.FC = () => {
                             )}
                           </div>
 
-                          {/* Compatible Alternative Teachers / Sections */}
                           {clash.suggested_alternatives.length > 0 && (
                             <div className="border-t border-[#D93025]/20 pt-2">
                               <div className="text-[11px] font-bold text-[#A50E0E] flex items-center gap-1 mb-1.5">
@@ -644,20 +850,115 @@ export const DashboardPage: React.FC = () => {
                 )}
               </div>
 
-              {/* LIVE WEEKLY VIT TIMETABLE GRID */}
+              {/* LIVE WEEKLY VIT TIMETABLE GRID CARD */}
               <div className="rounded-2xl border border-[#DADCE0] bg-white shadow-xs overflow-hidden print-surface">
+                {/* TIMETABLE READABILITY & VIEW TOOLBAR */}
                 <div className="border-b border-[#DADCE0] bg-[#F8F9FC] px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[14px] font-bold text-[#202124]">
-                      Live Weekly Timetable ({campus === 'vellore' ? 'VIT Vellore' : 'VIT Chennai'})
+                      {PLAN_LABELS[activePlanKey]} ({campus === 'vellore' ? 'VIT Vellore' : 'VIT Chennai'})
                     </span>
                     <span className="rounded-full bg-[#E8F0FE] px-2.5 py-0.5 font-mono text-[11px] font-bold text-[#174EA6]">
-                      {clashReport?.total_credits ?? 0} Credits
+                      {uniqueCourseCount} Courses • {clashReport?.total_credits ?? 0} Credits
+                    </span>
+                    <span className="hidden xl:inline text-[11px] text-[#5F6368]">
+                      • Scroll horizontally to inspect all 12 periods with full faculty & venue details
                     </span>
                   </div>
-                  <span className="text-[11px] text-[#5F6368]">
-                    Click any class card to inspect, switch teacher/slot, or remove
-                  </span>
+
+                  {/* Readability & View Controls */}
+                  <div className="no-print flex flex-wrap items-center gap-1.5 text-[12px]">
+                    {/* Detailed View vs Compact View */}
+                    <div className="inline-flex rounded-lg border border-[#DADCE0] bg-white p-0.5">
+                      <button
+                        onClick={() => setFitToPage(false)}
+                        className={`rounded-md px-2.5 py-1 text-[11.5px] font-bold transition-colors cursor-pointer ${
+                          !fitToPage
+                            ? 'bg-[#E8F0FE] text-[#1A73E8]'
+                            : 'text-[#5F6368] hover:text-[#202124]'
+                        }`}
+                        title="Detailed View — Full faculty names, 2-line course titles, and prominent PRP/SJT venue codes"
+                      >
+                        Detailed View
+                      </button>
+                      <button
+                        onClick={() => setFitToPage(true)}
+                        className={`rounded-md px-2.5 py-1 text-[11.5px] font-bold transition-colors cursor-pointer ${
+                          fitToPage
+                            ? 'bg-[#E8F0FE] text-[#1A73E8]'
+                            : 'text-[#5F6368] hover:text-[#202124]'
+                        }`}
+                        title="Compact View — Slightly narrower columns while keeping faculty & venue readable"
+                      >
+                        Compact View
+                      </button>
+                    </div>
+
+                    {/* Grid vs Detailed Class List Table */}
+                    <div className="inline-flex rounded-lg border border-[#DADCE0] bg-white p-0.5">
+                      <button
+                        onClick={() => setGridViewMode('week')}
+                        className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11.5px] font-bold transition-colors cursor-pointer ${
+                          gridViewMode === 'week'
+                            ? 'bg-[#E8F0FE] text-[#1A73E8]'
+                            : 'text-[#5F6368] hover:text-[#202124]'
+                        }`}
+                      >
+                        <LayoutGrid className="h-3 w-3" />
+                        <span>Weekly Grid</span>
+                      </button>
+                      <button
+                        onClick={() => setGridViewMode('slotlist')}
+                        className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11.5px] font-bold transition-colors cursor-pointer ${
+                          gridViewMode === 'slotlist'
+                            ? 'bg-[#E8F0FE] text-[#1A73E8]'
+                            : 'text-[#5F6368] hover:text-[#202124]'
+                        }`}
+                      >
+                        <ListFilter className="h-3 w-3" />
+                        <span>Class List</span>
+                      </button>
+                    </div>
+
+                    {/* Saturday Toggle */}
+                    <button
+                      onClick={() => setShowSaturday((s) => !s)}
+                      className={`rounded-lg border px-2.5 py-1 text-[11.5px] font-bold cursor-pointer ${
+                        showSaturday
+                          ? 'border-[#1A73E8] bg-[#E8F0FE] text-[#1A73E8]'
+                          : 'border-[#DADCE0] bg-white text-[#5F6368] hover:text-[#202124]'
+                      }`}
+                    >
+                      {showSaturday ? 'Mon–Sat' : '+ Saturday'}
+                    </button>
+
+                    {/* Expand Timetable Full Width Toggle */}
+                    <button
+                      onClick={() => setIsTimetableExpanded((e) => !e)}
+                      title={
+                        isTimetableExpanded
+                          ? 'Restore split-screen view with Course/Teacher Selector on the left'
+                          : 'Temporarily hide left panel to view Timetable across 100% of screen width'
+                      }
+                      className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11.5px] font-bold cursor-pointer ${
+                        isTimetableExpanded
+                          ? 'border-[#1A73E8] bg-[#1A73E8] text-white'
+                          : 'border-[#DADCE0] bg-white text-[#202124] hover:bg-[#F1F3F4]'
+                      }`}
+                    >
+                      {isTimetableExpanded ? (
+                        <>
+                          <Minimize2 className="h-3.5 w-3.5" />
+                          <span>Show Course Selector</span>
+                        </>
+                      ) : (
+                        <>
+                          <Maximize2 className="h-3.5 w-3.5 text-[#1A73E8]" />
+                          <span>Expand Full Width</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 <TimetableGrid
@@ -667,7 +968,7 @@ export const DashboardPage: React.FC = () => {
                   periodHeaders={periodHeaders}
                   slotMap={slotMap}
                   clashReport={clashReport}
-                  viewMode="week"
+                  viewMode={gridViewMode}
                   showVenues={true}
                   fitToPage={fitToPage}
                   sessionFilter="all"
@@ -677,7 +978,10 @@ export const DashboardPage: React.FC = () => {
                   onRemoveSection={handleRemoveSection}
                   onToggleLock={handleToggleLock}
                   onSwitchSection={(oldId, newId) => handleSwitchSectionById(oldId, newId)}
-                  onOpenFacultyComparison={(code) => setActiveCourseCode(code)}
+                  onOpenFacultyComparison={(code) => {
+                    setActiveCourseCode(code);
+                    setIsTimetableExpanded(false);
+                  }}
                   onClickEmptyCell={() => {
                     // Clicking an empty cell keeps focus on the left selector
                   }}

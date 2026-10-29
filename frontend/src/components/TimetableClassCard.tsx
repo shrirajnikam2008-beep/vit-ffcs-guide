@@ -34,6 +34,9 @@ export const TimetableClassCard: React.FC<TimetableClassCardProps> = ({
     section.course_type_code
   );
 
+  // Show full slot combination (e.g., L39+L40 or A1+TA1) and active occurrence slot if different
+  const slotDisplay = section.slot_combination || occurrence.slot_code;
+
   return (
     <div
       draggable={!isLocked && Boolean(onDragStartSection)}
@@ -60,32 +63,28 @@ export const TimetableClassCard: React.FC<TimetableClassCardProps> = ({
           onClick();
         }
       }}
-      className={`group relative w-full text-left rounded-[10px] border border-l-4 p-2 transition-all duration-150 cursor-pointer select-none ${
+      title={`${section.course_code} — ${section.course_title}\nFaculty: ${section.faculty_name}\nVenue: ${section.venue} • Slot: ${section.slot_combination} (${occurrence.slot_code}: ${occurrence.start_time}–${occurrence.end_time})`}
+      className={`group relative w-full text-left rounded-[10px] border border-l-4 ${
+        compact ? 'p-2' : 'p-2.5'
+      } transition-all duration-150 cursor-pointer select-none ${
         hasConfirmedClash
           ? 'bg-[#FCE8E6] dark:bg-[#5C1E1B]/80 border-[#D93025] border-l-[#D93025] shadow-xs ring-1 ring-[#D93025]/40'
           : hasUnresolvedWarning
           ? 'bg-[#FEF7E0] dark:bg-[#36290C] border-[#F9AB00] border-l-[#F9AB00]'
-          : `${colorStyle.bgLight} border-[#DADCE0]/70 dark:border-[#3C4043] ${colorStyle.borderLeft} hover:shadow-md hover:-translate-y-[1px]`
+          : `${colorStyle.bgLight} border-[#DADCE0] dark:border-[#3C4043] ${colorStyle.borderLeft} hover:shadow-md hover:-translate-y-[1px]`
       }`}
     >
-      {/* Top Row: Slot badge + Course Code + Status icons */}
-      <div className="flex items-center justify-between gap-1">
+      {/* Line 1: Course Code + Component Type Badge */}
+      <div className="flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-1 min-w-0">
           {!isLocked && onDragStartSection && (
             <GripVertical className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-60 text-[#5F6368] cursor-grab" />
           )}
           <span
-            className={`rounded px-1.5 py-0.2 text-[10px] font-bold font-mono ${
+            className={`font-mono text-[12.5px] font-extrabold tracking-tight ${
               hasConfirmedClash
-                ? 'bg-[#D93025] text-white'
-                : `${colorStyle.badgeBg} ${colorStyle.badgeText}`
-            }`}
-          >
-            {occurrence.slot_code}
-          </span>
-          <span
-            className={`truncate font-mono text-[12px] font-bold ${
-              hasConfirmedClash ? 'text-[#A50E0E] dark:text-[#F28B82]' : colorStyle.textPrimaryLight
+                ? 'text-[#A50E0E] dark:text-[#F28B82]'
+                : colorStyle.textPrimaryLight
             }`}
           >
             {section.course_code}
@@ -93,7 +92,13 @@ export const TimetableClassCard: React.FC<TimetableClassCardProps> = ({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          <span className="rounded bg-white/80 dark:bg-black/30 px-1 py-0.2 text-[9px] font-semibold text-[#5F6368] dark:text-[#9AA0A6]">
+          <span
+            className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${
+              hasConfirmedClash
+                ? 'bg-[#D93025] text-white'
+                : `${colorStyle.badgeBg} ${colorStyle.badgeText}`
+            }`}
+          >
             {section.course_type_code}
           </span>
           {isLocked && (
@@ -114,41 +119,50 @@ export const TimetableClassCard: React.FC<TimetableClassCardProps> = ({
         </div>
       </div>
 
-      {/* Course Title */}
+      {/* Line 2: Course Title (wraps up to 2 lines in Detailed view, 1 line in Compact view) */}
       <div
-        className={`mt-1 line-clamp-1 text-[12px] font-semibold leading-snug ${
-          hasConfirmedClash ? 'text-[#A50E0E] dark:text-[#F28B82]' : 'text-[#202124] dark:text-[#E3E3E3]'
+        className={`mt-1 ${
+          compact ? 'line-clamp-1 text-[11.5px]' : 'line-clamp-2 text-[12px]'
+        } font-semibold leading-snug ${
+          hasConfirmedClash
+            ? 'text-[#A50E0E] dark:text-[#F28B82]'
+            : 'text-[#202124] dark:text-[#E3E3E3]'
         }`}
-        title={section.course_title}
       >
         {section.course_title}
       </div>
 
-      {/* Faculty Name */}
+      {/* Line 3: Complete Faculty Name (Full width, wraps cleanly in Detailed view so never cut off) */}
       <div
-        className="mt-0.5 truncate text-[11px] font-medium text-[#5F6368] dark:text-[#9AA0A6]"
-        title={section.faculty_name}
+        className={`mt-1 ${
+          compact ? 'truncate text-[11px]' : 'break-words text-[11.5px]'
+        } font-bold leading-tight text-[#202124] dark:text-[#E3E3E3]`}
       >
         {section.faculty_name}
       </div>
 
-      {/* Bottom Row: Time & Venue */}
-      {!compact && (
-        <div className="mt-1 flex items-center justify-between gap-1 text-[10px] text-[#5F6368] dark:text-[#9AA0A6] tabular-time">
-          <span>
-            {occurrence.start_time}–{occurrence.end_time}
+      {/* Line 4: Venue · Slot Identifier (Always visible: e.g. SJTG18 · L39+L40) */}
+      <div className="mt-1.5 pt-1 border-t border-black/10 dark:border-white/10 flex flex-wrap items-center justify-between gap-1 text-[11px]">
+        {showVenues && (
+          <span className="rounded bg-white/90 dark:bg-black/40 border border-black/10 px-1.5 py-0.5 font-mono text-[11px] font-extrabold text-[#202124] dark:text-[#E3E3E3]">
+            {section.venue || 'TBA'}
           </span>
-          {showVenues && (
-            <span className="truncate font-mono font-semibold text-[#202124]/80 dark:text-[#E3E3E3]/80">
-              {section.venue}
-            </span>
-          )}
-        </div>
-      )}
+        )}
+        <span
+          className={`font-mono text-[10.5px] font-bold ${
+            hasConfirmedClash
+              ? 'text-[#D93025]'
+              : colorStyle.textPrimaryLight
+          }`}
+        >
+          {slotDisplay}
+          {slotDisplay !== occurrence.slot_code ? ` (${occurrence.slot_code})` : ''}
+        </span>
+      </div>
 
       {/* Explicit Clash Badge if conflicting */}
       {hasConfirmedClash && (
-        <div className="mt-1 rounded bg-[#D93025] px-1.5 py-0.5 text-center text-[9px] font-bold uppercase tracking-wider text-white">
+        <div className="mt-1 rounded bg-[#D93025] px-1.5 py-0.5 text-center text-[9.5px] font-bold uppercase tracking-wider text-white">
           Clash Detected
         </div>
       )}

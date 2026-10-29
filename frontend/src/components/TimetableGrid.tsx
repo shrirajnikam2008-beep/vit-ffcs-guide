@@ -240,8 +240,8 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
             onClickEmptyCell(dayCode, periodNum, placeholder);
           }
         }}
-        className={`relative border-b border-r border-[#DADCE0] dark:border-[#3C4043] p-1.5 align-top transition-colors ${
-          fitToPage ? 'min-w-[68px] h-[84px]' : 'min-w-[110px] h-[94px]'
+        className={`relative border-b border-r border-[#DADCE0] dark:border-[#3C4043] p-2 align-top transition-colors ${
+          fitToPage ? 'min-w-[122px] w-[122px] min-h-[104px]' : 'min-w-[156px] w-[156px] min-h-[122px]'
         } ${
           validDropCandidate
             ? 'bg-[#E6F4EA] dark:bg-[#143321]/70 ring-2 ring-inset ring-[#188038]'
@@ -314,18 +314,18 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
       {/* VIEW 1: WEEK / 3-DAY / DAY GRID VIEW */}
       {(viewMode === 'week' || viewMode === '3day' || viewMode === 'day') && (
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse table-fixed">
+          <table className="min-w-max w-full border-collapse">
             <SlotHeader periodHeaders={periodHeaders} fitToPage={fitToPage} />
             <tbody>
               {visibleDays.map((dayObj) => (
                 <tr key={dayObj.code}>
                   {/* Sticky Left Day Label */}
-                  <td className="sticky left-0 z-10 border-b border-r border-[#DADCE0] dark:border-[#3C4043] bg-[#F8F9FC] dark:bg-[#282A2C] px-2 py-3 text-center align-middle select-none">
-                    <div className="text-[12px] font-bold tracking-wider text-[#202124] dark:text-[#E3E3E3]">
+                  <td className="sticky left-0 z-10 w-20 min-w-[78px] border-b border-r border-[#DADCE0] dark:border-[#3C4043] bg-[#F8F9FC] dark:bg-[#282A2C] px-2.5 py-3.5 text-center align-middle select-none shadow-[1px_0_0_0_#DADCE0]">
+                    <div className="text-[13px] font-extrabold tracking-wider text-[#202124] dark:text-[#E3E3E3]">
                       {dayObj.label}
                     </div>
-                    <div className="text-[10px] text-[#5F6368] dark:text-[#9AA0A6]">
-                      {dayObj.full.slice(0, 3)}
+                    <div className="text-[11px] font-medium text-[#5F6368] dark:text-[#9AA0A6]">
+                      {dayObj.full}
                     </div>
                   </td>
 
