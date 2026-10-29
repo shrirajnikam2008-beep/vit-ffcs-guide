@@ -17,7 +17,13 @@
     --focus-ring: #AECBFA;
 
     font-family: 'Google Sans', 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
-    color-scheme: light;
+    color-scheme: only light;
+  }
+
+  /* Enforce light-theme timetable cards even when browser Auto Dark Mode is enabled */
+  .timetable-light-surface,
+  .timetable-light-surface * {
+    color-scheme: only light;
   }
 
   html.dark {

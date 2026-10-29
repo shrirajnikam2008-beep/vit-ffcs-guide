@@ -285,7 +285,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-white overflow-hidden">
+    <div className="timetable-light-surface flex-1 min-h-0 flex flex-col bg-white overflow-hidden">
       {/* Drag-and-drop helper banner */}
       {draggingSection && (
         <div className="shrink-0 bg-[#E6F4EA] border-b border-[#188038]/30 px-3 py-1 text-[11px] font-medium text-[#137333] flex items-center justify-between">

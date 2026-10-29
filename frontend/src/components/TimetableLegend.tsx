@@ -70,14 +70,25 @@ export const TimetableLegend: React.FC<TimetableLegendProps> = ({
               key={group.code}
               type="button"
               onClick={() => onSelectSection && onSelectSection(primarySec)}
-              className={`inline-flex items-center gap-2 rounded-lg border border-l-4 px-2.5 py-1 text-left text-[11px] transition-shadow hover:shadow-xs cursor-pointer ${color.bgLight} border-[#CBD5E1] ${color.borderLeft}`}
+              style={{
+                backgroundColor: color.hexBg,
+                borderLeftColor: color.hexAccent,
+                color: color.hexTextPrimary,
+                colorScheme: 'light',
+              }}
+              className="inline-flex items-center gap-2 rounded-lg border border-[#CBD5E1] border-l-4 px-2.5 py-1 text-left text-[11px] transition-shadow hover:shadow-xs cursor-pointer"
             >
-              <span className={`font-mono font-extrabold ${color.textPrimaryLight}`}>
+              <span
+                style={{ color: color.hexTextSecondary }}
+                className="font-mono font-extrabold"
+              >
                 {group.code}
               </span>
-              <span className="font-semibold text-[#0F172A]">{group.title}</span>
-              <span className="text-[#64748B]">·</span>
-              <span className="font-mono text-[10.5px] text-[#334155]">
+              <span style={{ color: '#0F172A' }} className="font-semibold">
+                {group.title}
+              </span>
+              <span style={{ color: '#64748B' }}>·</span>
+              <span style={{ color: '#334155' }} className="font-mono text-[10.5px]">
                 {group.sections
                   .map((s) => `${s.course_type_code}: ${s.slot_combination} (${s.venue})`)
                   .join(' | ')}

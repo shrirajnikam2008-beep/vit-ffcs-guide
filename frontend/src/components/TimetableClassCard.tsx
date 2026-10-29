@@ -63,6 +63,21 @@ export const TimetableClassCard: React.FC<TimetableClassCardProps> = ({
     hasConfirmedClash ? 'STATUS: CONFIRMED CLASH' : 'Status: Verified (No clash)',
   ].join('\n');
 
+  const cardBgColor = hasConfirmedClash
+    ? '#FCE8E6'
+    : hasUnresolvedWarning
+    ? '#FEF7E0'
+    : colorStyle.hexBg;
+
+  const cardAccentColor = hasConfirmedClash
+    ? '#D93025'
+    : hasUnresolvedWarning
+    ? '#F9AB00'
+    : colorStyle.hexAccent;
+
+  const primaryTextColor = hasConfirmedClash ? '#991B1B' : colorStyle.hexTextPrimary;
+  const secondaryTextColor = hasConfirmedClash ? '#7F1D1D' : colorStyle.hexTextSecondary;
+
   // ==========================================================================
   // MODE 1: COMPACT WEEK (Default) — Strictly 3 Details: Course Name, Faculty Name, Location
   // ==========================================================================
@@ -93,22 +108,28 @@ export const TimetableClassCard: React.FC<TimetableClassCardProps> = ({
             onClick();
           }
         }}
-        style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}
+        style={{
+          backgroundColor: cardBgColor,
+          borderLeftColor: cardAccentColor,
+          color: primaryTextColor,
+          colorScheme: 'light',
+          wordBreak: 'normal',
+          overflowWrap: 'break-word',
+        }}
         title={tooltipText}
-        className={`group relative w-full h-full flex flex-col justify-between text-left rounded-[7px] border border-l-[3px] px-[6px] py-[5px] transition-colors duration-100 cursor-pointer select-none ${
+        className={`group relative w-full h-full flex flex-col justify-between text-left rounded-[7px] border border-l-[3.5px] px-[6px] py-[5px] transition-colors duration-100 cursor-pointer select-none ${
           hasConfirmedClash
-            ? 'bg-[#FCE8E6] border-[#D93025] border-l-[#D93025] ring-1 ring-[#D93025]/40'
+            ? 'border-[#D93025] ring-1 ring-[#D93025]/40'
             : hasUnresolvedWarning
-            ? 'bg-[#FEF7E0] border-[#F9AB00] border-l-[#F9AB00]'
-            : `${colorStyle.bgLight} border-[#CBD5E1]/85 ${colorStyle.borderLeft} hover:border-[#1A73E8]`
+            ? 'border-[#F9AB00]'
+            : 'border-[#CBD5E1] hover:border-[#1A73E8]'
         }`}
       >
-        {/* 1. Course Name (10.5-11px semibold, wraps up to 2 lines cleanly) */}
+        {/* 1. Course Name (10.5-11px bold, high-contrast dark ink, wraps up to 2 lines cleanly) */}
         <div className="flex items-start justify-between gap-0.5">
           <div
-            className={`line-clamp-2 text-[10.5px] font-bold leading-[1.2] ${
-              hasConfirmedClash ? 'text-[#A50E0E]' : 'text-[#0F172A]'
-            }`}
+            style={{ color: primaryTextColor }}
+            className="line-clamp-2 text-[10.5px] font-bold leading-[1.2]"
           >
             {compactTitle}
           </div>
@@ -125,14 +146,16 @@ export const TimetableClassCard: React.FC<TimetableClassCardProps> = ({
 
         {/* 2. Faculty Name & 3. Location / Venue */}
         <div className="mt-1 space-y-[1px]">
-          <div className="text-[10px] font-semibold leading-[1.15] text-[#1E293B] break-words">
+          <div
+            style={{ color: '#0F172A' }}
+            className="text-[10px] font-bold leading-[1.15] break-words"
+          >
             {section.faculty_name}
           </div>
           {showVenues && (
             <div
-              className={`font-mono text-[10px] font-bold leading-[1.15] ${
-                hasConfirmedClash ? 'text-[#D93025]' : colorStyle.textPrimaryLight
-              }`}
+              style={{ color: secondaryTextColor }}
+              className="font-mono text-[10px] font-extrabold leading-[1.15]"
             >
               {section.venue || 'TBA'}
             </div>
@@ -171,22 +194,28 @@ export const TimetableClassCard: React.FC<TimetableClassCardProps> = ({
           onClick();
         }
       }}
-      style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}
+      style={{
+        backgroundColor: cardBgColor,
+        borderLeftColor: cardAccentColor,
+        color: primaryTextColor,
+        colorScheme: 'light',
+        wordBreak: 'normal',
+        overflowWrap: 'break-word',
+      }}
       title={tooltipText}
       className={`group relative w-full h-full flex flex-col justify-between text-left rounded-[8px] border border-l-[4px] p-2.5 min-h-[132px] transition-all duration-150 cursor-pointer select-none ${
         hasConfirmedClash
-          ? 'bg-[#FCE8E6] border-[#D93025] border-l-[#D93025] ring-1 ring-[#D93025]/40'
+          ? 'border-[#D93025] ring-1 ring-[#D93025]/40'
           : hasUnresolvedWarning
-          ? 'bg-[#FEF7E0] border-[#F9AB00] border-l-[#F9AB00]'
-          : `${colorStyle.bgLight} border-[#CBD5E1] ${colorStyle.borderLeft} hover:border-[#1A73E8]`
+          ? 'border-[#F9AB00]'
+          : 'border-[#CBD5E1] hover:border-[#1A73E8]'
       }`}
     >
       <div>
         <div className="flex items-center justify-between gap-1.5 leading-none">
           <span
-            className={`font-mono text-[12px] font-extrabold tracking-tight whitespace-nowrap ${
-              hasConfirmedClash ? 'text-[#A50E0E]' : colorStyle.textPrimaryLight
-            }`}
+            style={{ color: secondaryTextColor }}
+            className="font-mono text-[12px] font-extrabold tracking-tight whitespace-nowrap"
           >
             {section.course_code}
           </span>
@@ -198,40 +227,53 @@ export const TimetableClassCard: React.FC<TimetableClassCardProps> = ({
               <AlertTriangle className="h-3.5 w-3.5 text-[#D97706]" />
             )}
             <span
-              className={`rounded px-1.5 py-0.5 font-mono text-[9.5px] font-bold whitespace-nowrap ${
+              style={
                 hasConfirmedClash
-                  ? 'bg-[#D93025] text-white'
-                  : `${colorStyle.badgeBg} ${colorStyle.badgeText}`
-              }`}
+                  ? { backgroundColor: '#D93025', color: '#FFFFFF' }
+                  : {
+                      backgroundColor: colorStyle.hexBadgeBg,
+                      color: colorStyle.hexBadgeText,
+                    }
+              }
+              className="rounded px-1.5 py-0.5 font-mono text-[9.5px] font-bold whitespace-nowrap"
             >
               {section.course_type_code}
             </span>
           </div>
         </div>
 
-        <div className="mt-1.5 text-[12px] font-bold leading-[1.25] text-[#0F172A]">
+        <div
+          style={{ color: '#0F172A' }}
+          className="mt-1.5 text-[12px] font-bold leading-[1.25]"
+        >
           {section.course_title}
         </div>
       </div>
 
-      <div className="mt-2 pt-1.5 border-t border-slate-900/10 space-y-0.5 text-[10.5px] leading-[1.28] text-[#1E293B]">
+      <div className="mt-2 pt-1.5 border-t border-slate-900/15 space-y-0.5 text-[10.5px] leading-[1.28]">
         <div>
-          <span className="text-[#475569] font-semibold">Faculty: </span>
-          <span className="font-bold text-[#0F172A]">{section.faculty_name}</span>
+          <span style={{ color: '#334155' }} className="font-semibold">
+            Faculty:{' '}
+          </span>
+          <span style={{ color: '#0F172A' }} className="font-bold">
+            {section.faculty_name}
+          </span>
         </div>
         {showVenues && (
           <div>
-            <span className="text-[#475569] font-semibold">Venue: </span>
-            <span className="font-mono font-bold text-[#0F172A]">{section.venue || 'TBA'}</span>
+            <span style={{ color: '#334155' }} className="font-semibold">
+              Venue:{' '}
+            </span>
+            <span style={{ color: '#0F172A' }} className="font-mono font-bold">
+              {section.venue || 'TBA'}
+            </span>
           </div>
         )}
         <div>
-          <span className="text-[#475569] font-semibold">Slot: </span>
-          <span
-            className={`font-mono font-bold ${
-                              hasConfirmedClash ? 'text-[#D93025]' : colorStyle.textPrimaryLight
-            }`}
-          >
+          <span style={{ color: '#334155' }} className="font-semibold">
+            Slot:{' '}
+          </span>
+          <span style={{ color: secondaryTextColor }} className="font-mono font-bold">
             {slotDisplay}
           </span>
         </div>

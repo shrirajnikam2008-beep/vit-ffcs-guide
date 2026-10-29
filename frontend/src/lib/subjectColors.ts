@@ -7,7 +7,12 @@ export interface SubjectColorStyle {
   textSecondaryLight: string;
   badgeBg: string;
   badgeText: string;
+  hexBg: string;
   hexAccent: string;
+  hexTextPrimary: string;
+  hexTextSecondary: string;
+  hexBadgeBg: string;
+  hexBadgeText: string;
   rgbFill: [number, number, number];
   rgbAccent: [number, number, number];
   rgbBadgeBg: [number, number, number];
@@ -24,7 +29,7 @@ export function getSubjectColorStyle(
   const type = (courseTypeCode || '').toUpperCase();
   const isLab = type === 'ELA' || type === 'LAB' || type === 'LO';
 
-  // 1. Programming, DSA & Software Engineering -> Soft Lavender / Soft Rose-Lavender for Lab
+  // 1. Programming, DSA & Software Engineering -> Soft Lavender
   if (
     code.startsWith('BACSE') ||
     code === 'BAITE102' ||
@@ -36,35 +41,45 @@ export function getSubjectColorStyle(
     return isLab
       ? {
           categoryLabel: 'Programming & DSA (Lab)',
-          bgLight: 'bg-[#F8F0FF]',
-          bgDark: 'bg-[#F8F0FF]',
-          borderLeft: 'border-l-[#9333EA]',
-          textPrimaryLight: 'text-[#581C87]',
-          textSecondaryLight: 'text-[#6B21A8]',
-          badgeBg: 'bg-[#F3E8FF]',
-          badgeText: 'text-[#6B21A8]',
-          hexAccent: '#9333EA',
-          rgbFill: [248, 240, 255],
-          rgbAccent: [147, 51, 234],
-          rgbBadgeBg: [233, 213, 255],
+          bgLight: 'bg-[#F5EEFF]',
+          bgDark: 'bg-[#F5EEFF]',
+          borderLeft: 'border-l-[#7C3AED]',
+          textPrimaryLight: 'text-[#3B0764]',
+          textSecondaryLight: 'text-[#4C1D95]',
+          badgeBg: 'bg-[#EDE9FE]',
+          badgeText: 'text-[#4C1D95]',
+          hexBg: '#F5EEFF',
+          hexAccent: '#7C3AED',
+          hexTextPrimary: '#2E1065',
+          hexTextSecondary: '#4C1D95',
+          hexBadgeBg: '#EDE9FE',
+          hexBadgeText: '#4C1D95',
+          rgbFill: [245, 238, 255],
+          rgbAccent: [124, 58, 237],
+          rgbBadgeBg: [237, 233, 254],
         }
       : {
           categoryLabel: 'Programming & DSA',
-          bgLight: 'bg-[#F3E8FD]',
-          bgDark: 'bg-[#F3E8FD]',
-          borderLeft: 'border-l-[#7C3AED]',
-          textPrimaryLight: 'text-[#4C1D95]',
-          textSecondaryLight: 'text-[#5B21B6]',
+          bgLight: 'bg-[#F3E8FF]',
+          bgDark: 'bg-[#F3E8FF]',
+          borderLeft: 'border-l-[#6D28D9]',
+          textPrimaryLight: 'text-[#2E1065]',
+          textSecondaryLight: 'text-[#4C1D95]',
           badgeBg: 'bg-[#E9D5FF]',
-          badgeText: 'text-[#5B21B6]',
-          hexAccent: '#7C3AED',
-          rgbFill: [243, 232, 253],
-          rgbAccent: [124, 58, 237],
+          badgeText: 'text-[#4C1D95]',
+          hexBg: '#F3E8FF',
+          hexAccent: '#6D28D9',
+          hexTextPrimary: '#2E1065',
+          hexTextSecondary: '#4C1D95',
+          hexBadgeBg: '#E9D5FF',
+          hexBadgeText: '#4C1D95',
+          rgbFill: [243, 232, 255],
+          rgbAccent: [109, 40, 217],
           rgbBadgeBg: [233, 213, 255],
         };
   }
 
-  // 2. Digital Logic Design & Physics -> Soft Teal
+  // 2. Digital Logic Design & Physics -> Soft Teal / Sky Cyan
   if (
     code === 'BAITE101' ||
     code.startsWith('BAPHY') ||
@@ -74,16 +89,21 @@ export function getSubjectColorStyle(
     return isLab
       ? {
           categoryLabel: 'Digital Logic & Hardware (Lab)',
-          bgLight: 'bg-[#ECFEFF]',
-          bgDark: 'bg-[#ECFEFF]',
-          borderLeft: 'border-l-[#0891B2]',
-          textPrimaryLight: 'text-[#155E75]',
+          bgLight: 'bg-[#E6FAFC]',
+          bgDark: 'bg-[#E6FAFC]',
+          borderLeft: 'border-l-[#0284C7]',
+          textPrimaryLight: 'text-[#083344]',
           textSecondaryLight: 'text-[#0E7490]',
           badgeBg: 'bg-[#CFFAFE]',
-          badgeText: 'text-[#155E75]',
-          hexAccent: '#0891B2',
-          rgbFill: [236, 254, 255],
-          rgbAccent: [8, 145, 178],
+          badgeText: 'text-[#083344]',
+          hexBg: '#E6FAFC',
+          hexAccent: '#0284C7',
+          hexTextPrimary: '#083344',
+          hexTextSecondary: '#0E7490',
+          hexBadgeBg: '#CFFAFE',
+          hexBadgeText: '#083344',
+          rgbFill: [230, 250, 252],
+          rgbAccent: [2, 132, 199],
           rgbBadgeBg: [207, 250, 254],
         }
       : {
@@ -91,18 +111,23 @@ export function getSubjectColorStyle(
           bgLight: 'bg-[#E0F7FA]',
           bgDark: 'bg-[#E0F7FA]',
           borderLeft: 'border-l-[#0D9488]',
-          textPrimaryLight: 'text-[#115E59]',
-          textSecondaryLight: 'text-[#0F766E]',
+          textPrimaryLight: 'text-[#042F2E]',
+          textSecondaryLight: 'text-[#115E59]',
           badgeBg: 'bg-[#CCFBF1]',
-          badgeText: 'text-[#115E59]',
+          badgeText: 'text-[#042F2E]',
+          hexBg: '#E0F7FA',
           hexAccent: '#0D9488',
+          hexTextPrimary: '#042F2E',
+          hexTextSecondary: '#115E59',
+          hexBadgeBg: '#CCFBF1',
+          hexBadgeText: '#042F2E',
           rgbFill: [224, 247, 250],
           rgbAccent: [13, 148, 136],
           rgbBadgeBg: [204, 251, 241],
         };
   }
 
-  // 3. Probability, Statistics & Mathematics -> Soft Blue
+  // 3. Probability, Statistics & Mathematics -> Soft Sky Blue
   if (
     code.startsWith('BAMAT') ||
     title.includes('math') ||
@@ -114,14 +139,19 @@ export function getSubjectColorStyle(
           categoryLabel: 'Mathematics (Lab)',
           bgLight: 'bg-[#EFF6FF]',
           bgDark: 'bg-[#EFF6FF]',
-          borderLeft: 'border-l-[#3B82F6]',
-          textPrimaryLight: 'text-[#1E40AF]',
-          textSecondaryLight: 'text-[#1D4ED8]',
+          borderLeft: 'border-l-[#2563EB]',
+          textPrimaryLight: 'text-[#172554]',
+          textSecondaryLight: 'text-[#1E40AF]',
           badgeBg: 'bg-[#DBEAFE]',
-          badgeText: 'text-[#1E40AF]',
-          hexAccent: '#3B82F6',
+          badgeText: 'text-[#172554]',
+          hexBg: '#EFF6FF',
+          hexAccent: '#2563EB',
+          hexTextPrimary: '#172554',
+          hexTextSecondary: '#1E40AF',
+          hexBadgeBg: '#DBEAFE',
+          hexBadgeText: '#172554',
           rgbFill: [239, 246, 255],
-          rgbAccent: [59, 130, 246],
+          rgbAccent: [37, 99, 235],
           rgbBadgeBg: [219, 234, 254],
         }
       : {
@@ -129,47 +159,62 @@ export function getSubjectColorStyle(
           bgLight: 'bg-[#E8F0FE]',
           bgDark: 'bg-[#E8F0FE]',
           borderLeft: 'border-l-[#1A73E8]',
-          textPrimaryLight: 'text-[#174EA6]',
-          textSecondaryLight: 'text-[#1967D2]',
+          textPrimaryLight: 'text-[#172554]',
+          textSecondaryLight: 'text-[#1E3A8A]',
           badgeBg: 'bg-[#D2E3FC]',
-          badgeText: 'text-[#174EA6]',
+          badgeText: 'text-[#172554]',
+          hexBg: '#E8F0FE',
           hexAccent: '#1A73E8',
+          hexTextPrimary: '#172554',
+          hexTextSecondary: '#1E3A8A',
+          hexBadgeBg: '#D2E3FC',
+          hexBadgeText: '#172554',
           rgbFill: [232, 240, 254],
           rgbAccent: [26, 115, 232],
           rgbBadgeBg: [210, 227, 252],
         };
   }
 
-  // 4. Applied Chemistry -> Soft Amber
+  // 4. Applied Chemistry -> Crisp Light Cream / Soft Peach-Gold with High-Contrast Dark Slate/Navy Text
   if (code.startsWith('BACHY') || title.includes('chemistry')) {
     return isLab
       ? {
           categoryLabel: 'Applied Chemistry (Lab)',
-          bgLight: 'bg-[#FFFBEB]',
-          bgDark: 'bg-[#FFFBEB]',
+          bgLight: 'bg-[#FFF7ED]',
+          bgDark: 'bg-[#FFF7ED]',
           borderLeft: 'border-l-[#EA580C]',
-          textPrimaryLight: 'text-[#9A3412]',
-          textSecondaryLight: 'text-[#C2410C]',
+          textPrimaryLight: 'text-[#0F172A]',
+          textSecondaryLight: 'text-[#7C2D12]',
           badgeBg: 'bg-[#FFEDD5]',
-          badgeText: 'text-[#9A3412]',
+          badgeText: 'text-[#7C2D12]',
+          hexBg: '#FFF7ED',
           hexAccent: '#EA580C',
-          rgbFill: [255, 251, 235],
+          hexTextPrimary: '#0F172A',
+          hexTextSecondary: '#7C2D12',
+          hexBadgeBg: '#FFEDD5',
+          hexBadgeText: '#7C2D12',
+          rgbFill: [255, 247, 237],
           rgbAccent: [234, 88, 12],
           rgbBadgeBg: [255, 237, 213],
         }
       : {
           categoryLabel: 'Applied Chemistry',
-          bgLight: 'bg-[#FEF7E0]',
-          bgDark: 'bg-[#FEF7E0]',
+          bgLight: 'bg-[#FFFBEB]',
+          bgDark: 'bg-[#FFFBEB]',
           borderLeft: 'border-l-[#D97706]',
-          textPrimaryLight: 'text-[#92400E]',
-          textSecondaryLight: 'text-[#B45309]',
-          badgeBg: 'bg-[#FDE68A]',
-          badgeText: 'text-[#92400E]',
+          textPrimaryLight: 'text-[#0F172A]',
+          textSecondaryLight: 'text-[#78350F]',
+          badgeBg: 'bg-[#FEF3C7]',
+          badgeText: 'text-[#78350F]',
+          hexBg: '#FFFBEB',
           hexAccent: '#D97706',
-          rgbFill: [254, 247, 224],
+          hexTextPrimary: '#0F172A',
+          hexTextSecondary: '#78350F',
+          hexBadgeBg: '#FEF3C7',
+          hexBadgeText: '#78350F',
+          rgbFill: [255, 251, 235],
           rgbAccent: [217, 119, 6],
-          rgbBadgeBg: [253, 230, 138],
+          rgbBadgeBg: [254, 243, 199],
         };
   }
 
@@ -177,32 +222,42 @@ export function getSubjectColorStyle(
   if (code === 'BAITE202' || code === 'BAITE104' || title.includes('database') || title.includes('dbms')) {
     return {
       categoryLabel: isLab ? 'Database Systems (Lab)' : 'Database Systems',
-      bgLight: 'bg-[#E6F4EA]',
-      bgDark: 'bg-[#E6F4EA]',
-      borderLeft: 'border-l-[#188038]',
-      textPrimaryLight: 'text-[#137333]',
-      textSecondaryLight: 'text-[#188038]',
-      badgeBg: 'bg-[#CEEAD6]',
-      badgeText: 'text-[#137333]',
-      hexAccent: '#188038',
-      rgbFill: [230, 244, 234],
-      rgbAccent: [24, 128, 56],
-      rgbBadgeBg: [206, 234, 214],
+      bgLight: 'bg-[#ECFDF5]',
+      bgDark: 'bg-[#ECFDF5]',
+      borderLeft: 'border-l-[#059669]',
+      textPrimaryLight: 'text-[#064E3B]',
+      textSecondaryLight: 'text-[#065F46]',
+      badgeBg: 'bg-[#D1FAE5]',
+      badgeText: 'text-[#064E3B]',
+      hexBg: '#ECFDF5',
+      hexAccent: '#059669',
+      hexTextPrimary: '#064E3B',
+      hexTextSecondary: '#065F46',
+      hexBadgeBg: '#D1FAE5',
+      hexBadgeText: '#064E3B',
+      rgbFill: [236, 253, 245],
+      rgbAccent: [5, 150, 105],
+      rgbBadgeBg: [209, 250, 229],
     };
   }
 
-  // 6. University Core Courses / Humanities / Languages -> Soft Gray-Blue
+  // 6. University Core Courses / Humanities / Languages -> Crisp Soft Indigo-Slate
   return {
     categoryLabel: curriculumCategory === 'UCC' ? 'University Core' : 'Humanities & Core',
-    bgLight: 'bg-[#EEF2F6]',
-    bgDark: 'bg-[#EEF2F6]',
+    bgLight: 'bg-[#F1F5F9]',
+    bgDark: 'bg-[#F1F5F9]',
     borderLeft: 'border-l-[#475569]',
-    textPrimaryLight: 'text-[#1E293B]',
-    textSecondaryLight: 'text-[#475569]',
+    textPrimaryLight: 'text-[#0F172A]',
+    textSecondaryLight: 'text-[#334155]',
     badgeBg: 'bg-[#E2E8F0]',
-    badgeText: 'text-[#1E293B]',
+    badgeText: 'text-[#0F172A]',
+    hexBg: '#F1F5F9',
     hexAccent: '#475569',
-    rgbFill: [238, 242, 246],
+    hexTextPrimary: '#0F172A',
+    hexTextSecondary: '#334155',
+    hexBadgeBg: '#E2E8F0',
+    hexBadgeText: '#0F172A',
+    rgbFill: [241, 245, 249],
     rgbAccent: [71, 85, 105],
     rgbBadgeBg: [226, 232, 240],
   };
