@@ -11,15 +11,29 @@ import {
   ChevronDown,
   PanelLeftClose,
   Plus,
+  Clock,
+  CalendarDays,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   ClashReport,
   Course,
   CourseSection,
   FacultyComparisonItem,
+  SlotOccurrence,
 } from '../types/ffcs';
 import { fetchFacultyComparison } from '../lib/api';
 import { getSubjectColorStyle } from '../lib/subjectColors';
+import {
+  computeFacultyFilterCounts,
+  FacultySlotFilterKey,
+  filterFacultyOptions,
+  getFacultyTeachingSchedule,
+  rankFacultyOptions,
+  RecommendationBadgeLabel,
+  SchedulePreference,
+  SlotClassificationCategory,
+} from '../lib/slotIntelligence';
 
 interface CourseTeacherSlotSelectorProps {
   courses: Course[];
@@ -27,12 +41,49 @@ interface CourseTeacherSlotSelectorProps {
   onSelectCourseCode: (code: string) => void;
   selectedSections: CourseSection[];
   selectedSectionIds: number[];
+  slotMap: Record<string, SlotOccurrence[]>;
   clashReport: ClashReport | null;
   campus: string;
+  semester?: string;
   lastUpdatedLabel: string;
   onSelectOrSwitchSection: (section: CourseSection) => void;
   onRemoveSection: (sectionId: number) => void;
   onCollapsePanel?: () => void;
+}
+
+function getCategoryPillStyle(category: SlotClassificationCategory, session: string): string {
+  if (category === 'Morning Theory') {
+    return 'bg-[#FEF3C7] text-[#92400E] border-[#FDE68A]';
+  }
+  if (category === 'Evening Theory') {
+    return 'bg-[#E0E7FF] text-[#1E40AF] border-[#C7D2FE]';
+  }
+  if (category === 'Lab / Practical') {
+    return session === 'Morning'
+      ? 'bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]'
+      : 'bg-[#E0F2FE] text-[#075985] border-[#BAE6FD]';
+  }
+  if (category === 'Mixed / Other') {
+    return 'bg-[#F3E8FF] text-[#6B21A8] border-[#E9D5FF]';
+  }
+  return 'bg-[#F1F5F9] text-[#475569] border-[#CBD5E1]';
+}
+
+function getRecommendationBadgeStyle(label: RecommendationBadgeLabel): string {
+  switch (label) {
+    case 'Best Morning Fit':
+      return 'bg-[#DCFCE7] text-[#15803D] border-[#86EFAC]';
+    case 'Best Evening Fit':
+      return 'bg-[#DBEAFE] text-[#1D4ED8] border-[#93C5FD]';
+    case 'No Clash':
+      return 'bg-[#F0FDF4] text-[#166534] border-[#BBF7D0]';
+    case 'Mixed Schedule':
+      return 'bg-[#F3E8FF] text-[#6B21A8] border-[#E9D5FF]';
+    case 'Time Unverified':
+      return 'bg-[#FEF3C7] text-[#B45309] border-[#FDE68A]';
+    case 'Clash':
+      return 'bg-[#FEE2E2] text-[#B91C1C] border-[#FCA5A5]';
+  }
 }
 
 export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps> = ({
@@ -41,8 +92,10 @@ export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps>
   onSelectCourseCode,
   selectedSections,
   selectedSectionIds,
+  slotMap,
   clashReport,
   campus,
+  semester = 'Winter Semester 2026–27',
   lastUpdatedLabel,
   onSelectOrSwitchSection,
   onRemoveSection,
@@ -52,11 +105,15 @@ export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps>
   const [showCourseSearchDropdown, setShowCourseSearchDropdown] = useState(false);
   const [teacherSearch, setTeacherSearch] = useState('');
   const [selectedTeacherFilter, setSelectedTeacherFilter] = useState<string>('ALL');
-  const [componentTab, setComponentTab] = useState<'ALL' | 'ETH' | 'ELA' | 'OC'>('ALL');
+  const [slotFilter, setSlotFilter] = useState<FacultySlotFilterKey>('all');
+  const [schedulePreference, setSchedulePreference] = useState<SchedulePreference>('none');
   const [clashFreeOnly, setClashFreeOnly] = useState(false);
   const [rankedItems, setRankedItems] = useState<FacultyComparisonItem[]>([]);
   const [loadingRanks, setLoadingRanks] = useState(false);
   const [expandedRowDetails, setExpandedRowDetails] = useState<Record<number, boolean>>({});
+  const [expandedTeachingSchedule, setExpandedTeachingSchedule] = useState<Record<number, boolean>>(
+    {}
+  );
   const [selectedTrayExpanded, setSelectedTrayExpanded] = useState(false);
 
   const selectedSet = useMemo(() => new Set(selectedSectionIds), [selectedSectionIds]);
@@ -87,10 +144,10 @@ export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps>
 
   useEffect(() => {
     setSelectedTeacherFilter('ALL');
-    setComponentTab('ALL');
+    setSlotFilter('all');
   }, [activeCourse?.course_code]);
 
-  // Automatically rank compatible sections first
+  // Fetch compatibility & base scores from backend
   useEffect(() => {
     if (!activeCourse) return;
     let cancelled = false;
@@ -102,19 +159,18 @@ export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps>
       avoided_faculty: [],
       preferred_slots: [],
       avoided_slots: [],
-      session_preference: 'balanced',
+      session_preference:
+        schedulePreference === 'morning'
+          ? 'morning_theory'
+          : schedulePreference === 'evening'
+          ? 'evening_theory'
+          : 'balanced',
       campus,
       allow_adjacent_lab_boundary: true,
     })
       .then((res) => {
         if (!cancelled) {
-          const sorted = [...res.comparisons].sort((a, b) => {
-            if (a.is_compatible !== b.is_compatible) {
-              return a.is_compatible ? -1 : 1;
-            }
-            return b.score - a.score;
-          });
-          setRankedItems(sorted);
+          setRankedItems(res.comparisons);
         }
       })
       .catch((err) => console.error(err))
@@ -125,13 +181,25 @@ export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps>
     return () => {
       cancelled = true;
     };
-  }, [activeCourse?.course_code, selectedSectionIds, campus]);
+  }, [activeCourse?.course_code, selectedSectionIds, campus, schedulePreference]);
 
   const activeCourseSectionMap = useMemo(() => {
     const map = new Map<number, CourseSection>();
     activeCourse?.sections.forEach((s) => map.set(s.id, s));
     return map;
   }, [activeCourse]);
+
+  // Rank and classify all options for the selected course using official slotMap and schedulePreference
+  const classifiedAndRankedOptions = useMemo(
+    () =>
+      rankFacultyOptions(
+        rankedItems,
+        activeCourseSectionMap,
+        slotMap,
+        schedulePreference
+      ),
+    [rankedItems, activeCourseSectionMap, slotMap, schedulePreference]
+  );
 
   const availableTeachers = useMemo(() => {
     if (!activeCourse) return [];
@@ -146,7 +214,8 @@ export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps>
       }
     >();
 
-    for (const item of rankedItems) {
+    for (const opt of classifiedAndRankedOptions) {
+      const { item } = opt;
       const existing = seen.get(item.faculty_name);
       const rev = item.faculty_review;
       const rating = rev && rev.total_reviews > 0 ? rev.avg_rating ?? null : null;
@@ -164,12 +233,12 @@ export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps>
       }
     }
     return Array.from(seen.values());
-  }, [activeCourse, rankedItems]);
+  }, [activeCourse, classifiedAndRankedOptions]);
 
-  const visibleSectionItems = useMemo(() => {
+  // Apply teacher dropdown, search query, and clash-free toggle first so filter counts reflect available options
+  const searchFilteredOptions = useMemo(() => {
     const q = teacherSearch.trim().toLowerCase();
-    return rankedItems.filter((item) => {
-      if (componentTab !== 'ALL' && item.course_type_code !== componentTab) return false;
+    return classifiedAndRankedOptions.filter(({ item }) => {
       if (selectedTeacherFilter !== 'ALL' && item.faculty_name !== selectedTeacherFilter) {
         return false;
       }
@@ -187,7 +256,25 @@ export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps>
       }
       return true;
     });
-  }, [rankedItems, componentTab, selectedTeacherFilter, clashFreeOnly, teacherSearch, selectedSet]);
+  }, [
+    classifiedAndRankedOptions,
+    selectedTeacherFilter,
+    clashFreeOnly,
+    teacherSearch,
+    selectedSet,
+  ]);
+
+  // Calculate exact counts for [ All ] [ Morning ] [ Evening ] [ Labs ] [ Mixed ]
+  const slotFilterCounts = useMemo(
+    () => computeFacultyFilterCounts(searchFilteredOptions, (opt) => opt.classification),
+    [searchFilteredOptions]
+  );
+
+  // Final visible options after applying the Morning / Evening / Labs / Mixed segmented filter
+  const visibleSectionOptions = useMemo(
+    () => filterFacultyOptions(searchFilteredOptions, slotFilter, (opt) => opt.classification),
+    [searchFilteredOptions, slotFilter]
+  );
 
   const clashingIdsSet = useMemo(() => {
     const set = new Set<number>();
@@ -254,9 +341,12 @@ export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps>
                     className="w-full flex items-center justify-between px-2 py-1.5 text-left text-[11px] hover:bg-[#E8F0FE]/60 cursor-pointer"
                   >
                     <span className="truncate">
-                      <strong className="font-mono text-[#1A73E8]">{c.course_code}</strong> — {c.course_title}
+                      <strong className="font-mono text-[#1A73E8]">{c.course_code}</strong> —{' '}
+                      {c.course_title}
                     </span>
-                    <span className="ml-1.5 shrink-0 text-[9.5px] text-[#64748B]">{c.credits}Cr</span>
+                    <span className="ml-1.5 shrink-0 text-[9.5px] text-[#64748B]">
+                      {c.credits}Cr
+                    </span>
                   </button>
                 ))
               )}
@@ -275,7 +365,8 @@ export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps>
             const count = selectedSections.filter((s) => s.course_code === c.course_code).length;
             return (
               <option key={c.course_code} value={c.course_code}>
-                {c.course_code} — {c.course_title} ({c.credits}Cr){count > 0 ? ` ✓[${count}]` : ''}
+                {c.course_code} — {c.course_title} ({c.credits}Cr)
+                {count > 0 ? ` ✓[${count}]` : ''}
               </option>
             );
           })}
@@ -285,7 +376,9 @@ export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps>
         <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
           {courses.map((c) => {
             const isActive = activeCourse?.course_code === c.course_code;
-            const pickedCount = selectedSections.filter((s) => s.course_code === c.course_code).length;
+            const pickedCount = selectedSections.filter(
+              (s) => s.course_code === c.course_code
+            ).length;
             return (
               <button
                 key={c.course_code}
@@ -306,35 +399,61 @@ export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps>
           })}
         </div>
 
-        {/* Selected Course Compact Filters (Component Tabs + Faculty Selector + Slot Filter) */}
+        {/* Selected Course Compact Filters (Morning/Evening/Labs/Mixed + Preference + Faculty Search) */}
         {activeCourse && (
           <div className="pt-1 border-t border-[#CBD5E1]/70 space-y-1">
+            {/* Segmented Filter: [ All ] [ Morning ] [ Evening ] [ Labs ] [ Mixed ] */}
+            <div className="flex flex-wrap items-center gap-0.5 rounded border border-[#CBD5E1] bg-white p-0.5">
+              {(
+                [
+                  { key: 'all', label: 'All' },
+                  { key: 'morning', label: 'Morning' },
+                  { key: 'evening', label: 'Evening' },
+                  { key: 'labs', label: 'Labs' },
+                  { key: 'mixed', label: 'Mixed' },
+                ] as Array<{ key: FacultySlotFilterKey; label: string }>
+              ).map(({ key, label }) => {
+                const count = slotFilterCounts[key];
+                const active = slotFilter === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSlotFilter(key)}
+                    className={`flex-1 min-w-fit rounded px-1 py-0.5 text-[9.5px] font-bold transition-colors cursor-pointer ${
+                      active
+                        ? 'bg-[#1A73E8] text-white shadow-2xs'
+                        : 'text-[#475569] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                    }`}
+                  >
+                    {label} ({count})
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Smart Schedule Preference Selector + No-Clash Filter */}
             <div className="flex items-center justify-between gap-1">
-              <div className="inline-flex rounded border border-[#CBD5E1] bg-white p-0.5">
-                {(['ALL', 'ETH', 'ELA', 'OC'] as const).map((tab) => {
-                  const count = rankedItems.filter((i) =>
-                    tab === 'ALL' ? true : i.course_type_code === tab
-                  ).length;
-                  if (tab !== 'ALL' && count === 0) return null;
-                  return (
-                    <button
-                      key={tab}
-                      onClick={() => setComponentTab(tab)}
-                      className={`rounded px-1.5 py-0.5 text-[9.5px] font-bold transition-colors cursor-pointer ${
-                        componentTab === tab
-                          ? 'bg-[#E8F0FE] text-[#1A73E8]'
-                          : 'text-[#64748B] hover:text-[#0F172A]'
-                      }`}
-                    >
-                      {tab === 'ALL' ? `All (${count})` : `${tab} (${count})`}
-                    </button>
-                  );
-                })}
+              <div className="flex items-center gap-1 flex-1 min-w-0">
+                <Clock className="h-3 w-3 text-[#1A73E8] shrink-0" />
+                <select
+                  aria-label="Schedule Preference"
+                  value={schedulePreference}
+                  onChange={(e) =>
+                    setSchedulePreference(e.target.value as SchedulePreference)
+                  }
+                  className="flex-1 min-w-0 rounded border border-[#CBD5E1] bg-white px-1.5 py-0.5 text-[10px] font-semibold text-[#0F172A] focus:border-[#1A73E8] focus:outline-none cursor-pointer truncate"
+                >
+                  <option value="none">Preference: No Preference</option>
+                  <option value="morning">Prefer Morning Classes</option>
+                  <option value="evening">Prefer Evening Classes</option>
+                </select>
               </div>
 
               <button
+                type="button"
                 onClick={() => setClashFreeOnly((v) => !v)}
-                className={`inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-[9.5px] font-bold cursor-pointer ${
+                className={`shrink-0 inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-[9.5px] font-bold cursor-pointer ${
                   clashFreeOnly
                     ? 'border-[#188038] bg-[#E6F4EA] text-[#137333]'
                     : 'border-[#CBD5E1] bg-white text-[#64748B] hover:text-[#0F172A]'
@@ -380,163 +499,336 @@ export const CourseTeacherSlotSelector: React.FC<CourseTeacherSlotSelectorProps>
           <div className="py-6 text-center text-[11px] text-[#64748B]">
             Ranking compatible sections...
           </div>
-        ) : visibleSectionItems.length === 0 ? (
+        ) : visibleSectionOptions.length === 0 ? (
           <div className="py-6 px-2 text-center text-[11px] text-[#64748B]">
             No sections match your filter.
           </div>
         ) : (
-          visibleSectionItems.map((item) => {
-            const secObj = activeCourseSectionMap.get(item.section_id);
-            if (!secObj) return null;
-            const isPicked = selectedSet.has(item.section_id);
-            const isUnresolved = secObj.verification_status === 'UNRESOLVED';
-            const rev = item.faculty_review;
-            const isExpanded = Boolean(expandedRowDetails[item.section_id]);
+          visibleSectionOptions.map(
+            ({ item, section: secObj, classification, recommendationLabel }) => {
+              const isPicked = selectedSet.has(item.section_id);
+              const isUnresolved =
+                secObj.verification_status === 'UNRESOLVED' || !classification.isVerified;
+              const rev = item.faculty_review;
+              const isInfoExpanded = Boolean(expandedRowDetails[item.section_id]);
+              const isScheduleExpanded = Boolean(expandedTeachingSchedule[item.section_id]);
 
-            return (
-              <div
-                key={item.section_id}
-                onClick={() => onSelectOrSwitchSection(secObj)}
-                className={`px-2 py-1.5 transition-colors cursor-pointer ${
-                  isPicked
-                    ? 'bg-[#E8F0FE]/70 border-l-[3px] border-l-[#1A73E8]'
-                    : !item.is_compatible
-                    ? 'bg-[#FCE8E6]/20 hover:bg-[#FCE8E6]/35'
-                    : 'bg-white hover:bg-[#F8FAFC]'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-1.5">
-                  <div className="min-w-0 flex-1">
-                    {/* Row 1: Status Dot + Teacher Name + Type + Compact Review Preview */}
-                    <div className="flex items-center gap-1 leading-tight">
-                      {/* Status Dot: Green (No clash), Red (Confirmed clash), Amber (Unresolved) */}
-                      <span
-                        title={
-                          isUnresolved
-                            ? 'Amber: Slot mapping unresolved'
-                            : item.is_compatible
-                            ? 'Green: No confirmed clash'
-                            : 'Red: Confirmed clash'
-                        }
-                        className={`h-2 w-2 rounded-full shrink-0 ${
-                          isUnresolved
-                            ? 'bg-[#F59E0B]'
-                            : item.is_compatible
-                            ? 'bg-[#16A34A]'
-                            : 'bg-[#DC2626]'
-                        }`}
-                      />
-                      <span className="truncate text-[11px] font-bold text-[#0F172A]">
-                        {item.faculty_name}
-                      </span>
-                      <span className="shrink-0 rounded bg-[#F1F5F9] px-1 py-0.2 font-mono text-[9px] font-bold text-[#334155]">
-                        {item.course_type_code}
-                      </span>
-                      {rev && rev.total_reviews > 0 && (
-                        <span className="shrink-0 inline-flex items-center gap-0.5 text-[9.5px] font-bold text-[#B45309]">
-                          <Star className="h-2.5 w-2.5 fill-[#F59E0B] text-[#F59E0B]" />
-                          {rev.avg_rating}
-                        </span>
-                      )}
-                    </div>
+              // Compute full faculty teaching schedule on demand when expanded
+              const facultySchedule = isScheduleExpanded
+                ? getFacultyTeachingSchedule(
+                    item.faculty_name,
+                    activeCourse?.course_code || item.course_code,
+                    courses,
+                    slotMap,
+                    semester
+                  )
+                : null;
 
-                    {/* Row 2: Slot · Venue · Concise Status + Optional Details Toggle */}
-                    <div className="mt-0.5 flex items-center gap-1 flex-wrap font-mono text-[10px] leading-tight">
-                      <span className="font-bold text-[#1A73E8]">{item.slot_combination}</span>
-                      <span className="text-[#94A3B8]">·</span>
-                      <span className="font-semibold text-[#1E293B]">{item.venue}</span>
-                      <span className="text-[#94A3B8]">·</span>
-                      {isUnresolved ? (
-                        <span className="font-sans text-[9.5px] font-semibold text-[#B45309]">
-                          Unresolved
+              return (
+                <div
+                  key={item.section_id}
+                  onClick={() => onSelectOrSwitchSection(secObj)}
+                  className={`px-2 py-1.5 transition-colors cursor-pointer ${
+                    isPicked
+                      ? 'bg-[#E8F0FE]/70 border-l-[3px] border-l-[#1A73E8]'
+                      : !item.is_compatible
+                      ? 'bg-[#FCE8E6]/20 hover:bg-[#FCE8E6]/35'
+                      : 'bg-white hover:bg-[#F8FAFC]'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-1.5">
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      {/* Row 1: Status Dot + Faculty Name + Morning/Evening/Lab Category Pill + Review Rating */}
+                      <div className="flex items-center gap-1 flex-wrap leading-tight">
+                        <span
+                          title={
+                            isUnresolved
+                              ? 'Amber: Slot mapping unresolved'
+                              : item.is_compatible
+                              ? 'Green: No confirmed clash'
+                              : 'Red: Confirmed clash'
+                          }
+                          className={`h-2 w-2 rounded-full shrink-0 ${
+                            isUnresolved
+                              ? 'bg-[#F59E0B]'
+                              : item.is_compatible
+                              ? 'bg-[#16A34A]'
+                              : 'bg-[#DC2626]'
+                          }`}
+                        />
+                        <span className="truncate text-[11px] font-bold text-[#0F172A]">
+                          {item.faculty_name}
                         </span>
-                      ) : item.is_compatible ? (
-                        <span className="font-sans text-[9.5px] font-semibold text-[#16A34A]">
-                          No clash
+                        <span
+                          className={`shrink-0 rounded border px-1 py-0.2 text-[9px] font-bold ${getCategoryPillStyle(
+                            classification.category,
+                            classification.session
+                          )}`}
+                        >
+                          {classification.shortLabel}
                         </span>
-                      ) : (
-                        <span className="font-sans text-[9.5px] font-semibold text-[#DC2626]">
-                          Clash ({item.conflicts_with[0]?.split(' ')[0] || 'Slot'})
-                        </span>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setExpandedRowDetails((prev) => ({
-                            ...prev,
-                            [item.section_id]: !prev[item.section_id],
-                          }));
-                        }}
-                        className="ml-auto font-sans text-[9px] font-semibold text-[#64748B] hover:text-[#1A73E8] underline cursor-pointer"
-                      >
-                        {isExpanded ? 'Less' : 'Info'}
-                      </button>
-                    </div>
-
-                    {/* On-Demand Expanded Review & Clash Details */}
-                    {isExpanded && (
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        className="mt-1 rounded bg-[#F8FAFC] border border-[#CBD5E1]/70 px-1.5 py-1 text-[9.5px] text-[#334155] space-y-0.5"
-                      >
-                        {!item.is_compatible && item.conflicts_with.length > 0 && (
-                          <div className="font-semibold text-[#DC2626]">
-                            Conflicts with: {item.conflicts_with.join(', ')}
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between">
-                          <span>
-                            {rev && rev.total_reviews > 0
-                              ? `Rating: ★${rev.avg_rating}/5 (${rev.total_reviews} reviews · ${rev.cart_count} carts)`
-                              : rev?.no8am_id
-                              ? `Verified on no8am.site (0 reviews · ${rev.cart_count} carts)`
-                              : `No review profile (${lastUpdatedLabel})`}
+                        {rev && rev.total_reviews > 0 && (
+                          <span className="shrink-0 inline-flex items-center gap-0.5 text-[9.5px] font-bold text-[#B45309]">
+                            <Star className="h-2.5 w-2.5 fill-[#F59E0B] text-[#F59E0B]" />
+                            {rev.avg_rating}
                           </span>
-                          {rev?.profile_url && (
-                            <a
-                              href={rev.profile_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-0.5 font-semibold text-[#1A73E8] hover:underline"
-                            >
-                              no8am <ExternalLink className="h-2.5 w-2.5" />
-                            </a>
-                          )}
-                        </div>
+                        )}
                       </div>
-                    )}
-                  </div>
 
-                  {/* Clear Add / Remove Action Button */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectOrSwitchSection(secObj);
-                    }}
-                    className={`shrink-0 inline-flex items-center gap-0.5 rounded px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer ${
-                      isPicked
-                        ? 'bg-[#16A34A] text-white hover:bg-[#DC2626]'
-                        : item.is_compatible
-                        ? 'bg-[#1A73E8] text-white hover:bg-[#1557B0]'
-                        : 'border border-[#DC2626]/40 bg-white text-[#DC2626] hover:bg-[#FCE8E6]'
-                    }`}
-                  >
-                    {isPicked ? (
-                      <span>Remove</span>
-                    ) : (
-                      <>
-                        <Plus className="h-2.5 w-2.5" />
-                        <span>Add</span>
-                      </>
-                    )}
-                  </button>
+                      {/* Row 2: Slot · Venue · Type · Recommendation Badge */}
+                      <div className="flex items-center gap-1 flex-wrap font-mono text-[10px] leading-tight">
+                        <span className="font-bold text-[#1A73E8]">
+                          Slot: {item.slot_combination}
+                        </span>
+                        <span className="text-[#94A3B8]">·</span>
+                        <span className="font-semibold text-[#1E293B]">
+                          Venue: {item.venue || 'TBA'}
+                        </span>
+                        <span className="rounded bg-[#F1F5F9] px-1 py-0.2 text-[8.5px] font-bold text-[#334155]">
+                          {item.course_type_code}
+                        </span>
+                        <span
+                          className={`font-sans rounded border px-1 py-0.2 text-[8.5px] font-bold ${getRecommendationBadgeStyle(
+                            recommendationLabel
+                          )}`}
+                        >
+                          {recommendationLabel === 'Clash'
+                            ? `Clash (${item.conflicts_with[0]?.split(' ')[0] || 'Slot'})`
+                            : recommendationLabel}
+                        </span>
+                      </div>
+
+                      {/* Row 3: Verified Teaching Day & Time Schedule (Below Slot & Venue) */}
+                      <div className="pt-0.5 text-[9.5px] leading-[1.25] text-[#334155]">
+                        {classification.isVerified &&
+                        classification.teachingPeriods.length > 0 ? (
+                          <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                            {classification.teachingPeriods.map((tp, idx) => (
+                              <span
+                                key={`${tp.day}_${tp.period}_${idx}`}
+                                className="inline-flex items-center gap-0.5 font-medium text-[#1E293B]"
+                              >
+                                <span className="font-semibold text-[#0F172A]">
+                                  {tp.dayFull}
+                                </span>
+                                <span className="text-[#64748B]">|</span>
+                                <span className="font-mono text-[9px] text-[#334155]">
+                                  {tp.startTime}–{tp.endTime}
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 font-medium text-[#B45309]">
+                            <AlertTriangle className="h-2.5 w-2.5" />
+                            <span>Time unavailable</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Row 4: Action Links for Teaching Schedule & Review Info */}
+                      <div className="flex items-center gap-2 pt-0.5">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedTeachingSchedule((prev) => ({
+                              ...prev,
+                              [item.section_id]: !prev[item.section_id],
+                            }));
+                          }}
+                          className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-[#1A73E8] hover:underline cursor-pointer"
+                        >
+                          <CalendarDays className="h-2.5 w-2.5" />
+                          <span>
+                            {isScheduleExpanded ? 'Hide Schedule' : 'Teaching Schedule'}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedRowDetails((prev) => ({
+                              ...prev,
+                              [item.section_id]: !prev[item.section_id],
+                            }));
+                          }}
+                          className="text-[9px] font-semibold text-[#64748B] hover:text-[#1A73E8] underline cursor-pointer"
+                        >
+                          {isInfoExpanded ? 'Less Info' : 'Reviews & Clash Info'}
+                        </button>
+                      </div>
+
+                      {/* Expandable Section 1: Verified Teacher Teaching Schedule Intelligence */}
+                      {isScheduleExpanded && facultySchedule && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-1 rounded border border-[#CBD5E1] bg-[#F8FAFC] p-1.5 text-[9.5px] text-[#1E293B] space-y-1.5"
+                        >
+                          <div className="flex items-center justify-between gap-1 border-b border-[#CBD5E1]/70 pb-1">
+                            <span className="font-bold text-[#0F172A]">
+                              {facultySchedule.facultyName} — Verified Teaching Assignments
+                            </span>
+                            <span className="rounded bg-[#FEF3C7] px-1 py-0.2 text-[8.5px] font-bold text-[#92400E]">
+                              Partial (Imported Data)
+                            </span>
+                          </div>
+
+                          {/* Group A: Selected Course's Available Sections taught by this Faculty */}
+                          <div>
+                            <div className="text-[9px] font-bold uppercase tracking-wide text-[#475569]">
+                              {activeCourse?.course_code} Sections ({facultySchedule.selectedCourseSections.length})
+                            </div>
+                            <div className="mt-0.5 space-y-1">
+                              {facultySchedule.selectedCourseSections.map((secEntry) => (
+                                <div
+                                  key={secEntry.sectionId}
+                                  className="rounded border border-[#E2E8F0] bg-white px-1.5 py-1"
+                                >
+                                  <div className="flex items-center justify-between gap-1 font-mono text-[9px]">
+                                    <span className="font-bold text-[#1A73E8]">
+                                      {secEntry.slotCombination} ({secEntry.courseTypeCode})
+                                    </span>
+                                    <span className="text-[#334155]">
+                                      Venue: {secEntry.venue || 'TBA'}
+                                    </span>
+                                    <span className="font-sans font-semibold text-[#475569]">
+                                      {secEntry.classification.shortLabel}
+                                    </span>
+                                  </div>
+                                  {secEntry.classification.isVerified &&
+                                  secEntry.classification.teachingPeriods.length > 0 ? (
+                                    <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] text-[#334155]">
+                                      {secEntry.classification.teachingPeriods.map((p, i) => (
+                                        <span key={i}>
+                                          {p.dayFull} | {p.startTime}–{p.endTime} ({p.slotCode})
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="mt-0.5 text-[9px] text-[#B45309]">
+                                      Time unavailable
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Group B: Other Course Offerings by the Same Faculty */}
+                          <div>
+                            <div className="text-[9px] font-bold uppercase tracking-wide text-[#475569]">
+                              Other Imported Course Offerings ({facultySchedule.otherCourseOfferings.length})
+                            </div>
+                            {facultySchedule.otherCourseOfferings.length === 0 ? (
+                              <div className="mt-0.5 text-[9px] text-[#64748B]">
+                                No other course offerings listed for this faculty in the imported dataset.
+                              </div>
+                            ) : (
+                              <div className="mt-0.5 space-y-1">
+                                {facultySchedule.otherCourseOfferings.map((otherEntry) => (
+                                  <div
+                                    key={otherEntry.sectionId}
+                                    className="rounded border border-[#E2E8F0] bg-white px-1.5 py-1"
+                                  >
+                                    <div className="flex items-center justify-between gap-1 text-[9px]">
+                                      <span className="font-bold text-[#0F172A]">
+                                        {otherEntry.courseCode} ({otherEntry.courseTypeCode})
+                                      </span>
+                                      <span className="font-mono font-bold text-[#1A73E8]">
+                                        {otherEntry.slotCombination} · {otherEntry.venue || 'TBA'}
+                                      </span>
+                                    </div>
+                                    {otherEntry.classification.isVerified &&
+                                    otherEntry.classification.teachingPeriods.length > 0 ? (
+                                      <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[8.5px] text-[#475569]">
+                                        {otherEntry.classification.teachingPeriods.map((p, i) => (
+                                          <span key={i}>
+                                            {p.dayFull} | {p.startTime}–{p.endTime}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <div className="mt-0.5 text-[8.5px] text-[#B45309]">
+                                        Time unavailable
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="text-[8.5px] italic text-[#64748B]">
+                            {facultySchedule.disclaimer}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Expandable Section 2: Reviews & Clash Details */}
+                      {isInfoExpanded && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-1 rounded bg-[#F8FAFC] border border-[#CBD5E1]/70 px-1.5 py-1 text-[9.5px] text-[#334155] space-y-0.5"
+                        >
+                          {!item.is_compatible && item.conflicts_with.length > 0 && (
+                            <div className="font-semibold text-[#DC2626]">
+                              Conflicts with: {item.conflicts_with.join(', ')}
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between">
+                            <span>
+                              {rev && rev.total_reviews > 0
+                                ? `Rating: ★${rev.avg_rating}/5 (${rev.total_reviews} reviews · ${rev.cart_count} carts)`
+                                : rev?.no8am_id
+                                ? `Verified on no8am.site (0 reviews · ${rev.cart_count} carts)`
+                                : `No review profile (${lastUpdatedLabel})`}
+                            </span>
+                            {rev?.profile_url && (
+                              <a
+                                href={rev.profile_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-0.5 font-semibold text-[#1A73E8] hover:underline"
+                              >
+                                no8am <ExternalLink className="h-2.5 w-2.5" />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Clear Add / Remove Action Button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectOrSwitchSection(secObj);
+                      }}
+                      className={`shrink-0 inline-flex items-center gap-0.5 rounded px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer ${
+                        isPicked
+                          ? 'bg-[#16A34A] text-white hover:bg-[#DC2626]'
+                          : item.is_compatible
+                          ? 'bg-[#1A73E8] text-white hover:bg-[#1557B0]'
+                          : 'border border-[#DC2626]/40 bg-white text-[#DC2626] hover:bg-[#FCE8E6]'
+                      }`}
+                    >
+                      {isPicked ? (
+                        <span>Remove</span>
+                      ) : (
+                        <>
+                          <Plus className="h-2.5 w-2.5" />
+                          <span>Add</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })
+              );
+            }
+          )
         )}
       </div>
 

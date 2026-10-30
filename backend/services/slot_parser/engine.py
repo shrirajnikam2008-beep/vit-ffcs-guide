@@ -77,6 +77,118 @@ CHENNAI_LAB_TIMES: Dict[int, Tuple[str, str]] = {
 
 DAYS_ORDER = ["MON", "TUE", "WED", "THU", "FRI", "SAT"]
 
+# Configurable afternoon threshold for Morning vs Evening classification (14:00 = 840 minutes)
+AFTERNOON_THRESHOLD_MINUTES = 14 * 60
+
+
+def time_to_minutes(t_str: str) -> Optional[int]:
+    if not t_str or ":" not in t_str:
+        return None
+    try:
+        h, m = t_str.strip().split(":")
+        return int(h) * 60 + int(m)
+    except ValueError:
+        return None
+
+
+def classify_combined_slot_category(
+    raw_slot_string: str,
+    slot_map: Optional[Dict[str, List[SlotOccurrence]]] = None,
+    course_type_code: Optional[str] = None,
+    afternoon_threshold_minutes: int = AFTERNOON_THRESHOLD_MINUTES,
+    campus: str = "vellore",
+) -> Dict[str, Any]:
+    """
+    Classifies a slot or slot combination into:
+    - 'Morning Theory'
+    - 'Evening Theory'
+    - 'Lab / Practical'
+    - 'Mixed / Other'
+    - 'Unclassified'
+    using the verified VIT slot timetable mapping (`slot_map`) and mapped start_time.
+    Never derives session from the trailing digit of the slot identifier alone.
+    """
+    if slot_map is None:
+        slot_map = load_active_slot_map(None, campus)
+
+    parsed = parse_slot_string(raw_slot_string, slot_map, campus)
+    if parsed.status != "VERIFIED" or not parsed.occurrences:
+        return {
+            "raw_slot": raw_slot_string,
+            "category": "Unclassified",
+            "session": "Unknown",
+            "is_verified": False,
+            "teaching_periods": [],
+        }
+
+    # Deduplicate and sort occurrences chronologically
+    seen = set()
+    periods = []
+    has_lab = False
+    has_theory = False
+    has_morning = False
+    has_evening = False
+
+    for occ in parsed.occurrences:
+        start_mins = time_to_minutes(occ.start_time)
+        end_mins = time_to_minutes(occ.end_time)
+        if start_mins is None or end_mins is None or end_mins <= start_mins:
+            return {
+                "raw_slot": raw_slot_string,
+                "category": "Unclassified",
+                "session": "Unknown",
+                "is_verified": False,
+                "teaching_periods": [],
+            }
+
+        occ_session = "Morning" if start_mins < afternoon_threshold_minutes else "Evening"
+        if occ_session == "Morning":
+            has_morning = True
+        else:
+            has_evening = True
+
+        if occ.slot_category == "LAB":
+            has_lab = True
+        else:
+            has_theory = True
+
+        dedupe_key = (occ.day, occ.period, occ.start_time, occ.end_time, occ.slot_category)
+        if dedupe_key not in seen:
+            seen.add(dedupe_key)
+            periods.append(
+                {
+                    "slot_code": occ.slot_code,
+                    "day": occ.day,
+                    "period": occ.period,
+                    "start_time": occ.start_time,
+                    "end_time": occ.end_time,
+                    "slot_category": occ.slot_category,
+                    "session": occ_session,
+                }
+            )
+
+    session_str = "Mixed" if (has_morning and has_evening) else ("Morning" if has_morning else "Evening")
+    norm_type = (course_type_code or "").strip().upper()
+
+    if has_theory and has_lab:
+        category = "Mixed / Other"
+    elif has_lab or norm_type in ("ELA", "LAB"):
+        category = "Lab / Practical"
+    elif session_str == "Mixed":
+        category = "Mixed / Other"
+    elif session_str == "Morning":
+        category = "Morning Theory"
+    else:
+        category = "Evening Theory"
+
+    return {
+        "raw_slot": raw_slot_string,
+        "category": category,
+        "session": session_str,
+        "is_verified": True,
+        "teaching_periods": periods,
+    }
+
 
 def classify_slot_token(token: str) -> str:
     """
@@ -122,6 +234,12 @@ def build_default_slot_mappings(campus: str = "vellore") -> Dict[str, List[Dict[
     def mk(slot_code: str, day: str, period: int, is_lab: bool = False) -> Dict[str, Any]:
         cat = "LAB" if is_lab else classify_slot_token(slot_code)
         start_t, end_t = (lb_times if is_lab else th_times)[period]
+        start_mins = time_to_minutes(start_t)
+        session_val = (
+            "Morning"
+            if (start_mins is not None and start_mins < AFTERNOON_THRESHOLD_MINUTES)
+            else "Evening"
+        )
         return {
             "campus": campus_key,
             "slot_code": slot_code,
@@ -130,7 +248,7 @@ def build_default_slot_mappings(campus: str = "vellore") -> Dict[str, List[Dict[
             "start_time": start_t,
             "end_time": end_t,
             "slot_category": cat,
-            "session": get_slot_session(slot_code),
+            "session": session_val,
             "source": f"Official VIT {campus_key.capitalize()} Timetable",
             "is_custom": False,
         }
@@ -401,16 +519,6 @@ def parse_slot_string(
         session_summary=session_summary,
         explanation=" ".join(explanations) if explanations else None,
     )
-
-
-def time_to_minutes(t_str: str) -> Optional[int]:
-    if not t_str or ":" not in t_str:
-        return None
-    try:
-        h, m = t_str.strip().split(":")
-        return int(h) * 60 + int(m)
-    except ValueError:
-        return None
 
 
 def occurrences_collide(

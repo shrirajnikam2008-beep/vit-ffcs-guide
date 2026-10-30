@@ -808,8 +808,10 @@ export const DashboardPage: React.FC = () => {
                       onSelectCourseCode={(code) => setActiveCourseCode(code)}
                       selectedSections={selectedSections}
                       selectedSectionIds={selectedSectionIds}
+                      slotMap={slotMap}
                       clashReport={clashReport}
                       campus={campus}
+                      semester={semester}
                       lastUpdatedLabel={lastUpdatedLabel}
                       onSelectOrSwitchSection={handleSelectOrSwitchSection}
                       onRemoveSection={handleRemoveSection}

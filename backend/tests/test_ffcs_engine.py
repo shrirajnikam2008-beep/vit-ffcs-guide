@@ -414,3 +414,70 @@ def test_14_no8am_reviews_and_teacher_switch_workflow(db_session):
     assert merged_again["courses_added"] == 0
     assert merged_again["sections_added"] == 0
 
+
+def test_15_morning_evening_lab_slot_classification_intelligence():
+    from backend.services.slot_parser.engine import classify_combined_slot_category
+
+    slot_map = load_active_slot_map(None, "vellore")
+
+    # 1. Morning Theory slots: A1, B1, C1, D1, E1
+    for slot in ("A1", "B1", "C1", "D1", "E1"):
+        res = classify_combined_slot_category(slot, slot_map)
+        assert res["category"] == "Morning Theory"
+        assert res["session"] == "Morning"
+        assert res["is_verified"] is True
+        assert len(res["teaching_periods"]) == 2
+        assert all(p["session"] == "Morning" for p in res["teaching_periods"])
+
+    # 2. Evening Theory slots: A2, B2, C2, D2, E2
+    for slot in ("A2", "B2", "C2", "D2", "E2"):
+        res = classify_combined_slot_category(slot, slot_map)
+        assert res["category"] == "Evening Theory"
+        assert res["session"] == "Evening"
+        assert res["is_verified"] is True
+        assert len(res["teaching_periods"]) == 2
+        assert all(p["session"] == "Evening" for p in res["teaching_periods"])
+
+    # 3. Combined Theory slots (e.g., B1+TB1, F2+TF2)
+    b1_tb1 = classify_combined_slot_category("B1+TB1", slot_map, "ETH")
+    assert b1_tb1["category"] == "Morning Theory"
+    assert len(b1_tb1["teaching_periods"]) == 3
+
+    f2_tf2 = classify_combined_slot_category("F2+TF2", slot_map, "ETH")
+    assert f2_tf2["category"] == "Evening Theory"
+    assert len(f2_tf2["teaching_periods"]) == 3
+
+    # 4. Lab slots (e.g., L1+L2 morning, L37+L38+L43+L44 evening)
+    l1_l2 = classify_combined_slot_category("L1+L2", slot_map, "ELA")
+    assert l1_l2["category"] == "Lab / Practical"
+    assert l1_l2["session"] == "Morning"
+    assert len(l1_l2["teaching_periods"]) == 2
+    assert l1_l2["teaching_periods"][0]["start_time"] == "08:00"
+    assert l1_l2["teaching_periods"][0]["end_time"] == "08:50"
+    assert l1_l2["teaching_periods"][1]["start_time"] == "08:51"
+    assert l1_l2["teaching_periods"][1]["end_time"] == "09:40"
+
+    l_evening = classify_combined_slot_category("L37+L38+L43+L44", slot_map, "ELA")
+    assert l_evening["category"] == "Lab / Practical"
+    assert l_evening["session"] == "Evening"
+    assert len(l_evening["teaching_periods"]) == 4
+
+    # 5. Mixed morning/evening combinations (e.g., A1+A2, A1+L31)
+    mixed_th = classify_combined_slot_category("A1+A2", slot_map, "ETH")
+    assert mixed_th["category"] == "Mixed / Other"
+    assert mixed_th["session"] == "Mixed"
+    assert mixed_th["is_verified"] is True
+
+    mixed_th_lab = classify_combined_slot_category("A1+L31", slot_map, "ETL")
+    assert mixed_th_lab["category"] == "Mixed / Other"
+    assert mixed_th_lab["session"] == "Mixed"
+
+    # 6. Unknown slots and missing timetable mappings (e.g., G1/G2, ANY SLOT, Z9, empty)
+    for bad_slot in ("G1/G2", "ANY SLOT", "Z9", "A1+UNKNOWN99", ""):
+        unclassified = classify_combined_slot_category(bad_slot, slot_map)
+        assert unclassified["category"] == "Unclassified"
+        assert unclassified["session"] == "Unknown"
+        assert unclassified["is_verified"] is False
+        assert unclassified["teaching_periods"] == []
+
+
